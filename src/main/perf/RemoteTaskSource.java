@@ -49,7 +49,7 @@ class RemoteTaskSource extends Thread implements TaskSource {
     setDaemon(true);
     start();
   }
-  
+
   @Override
   public List<Task> getAllTasks() {
     return null;
@@ -138,12 +138,12 @@ class RemoteTaskSource extends Thread implements TaskSource {
   }
 
   @Override
-  public void taskDone(Task task, long queueTimeNS, int totalHitCount) throws IOException {
+  public void taskDone(Task task, long queueTimeNS, long processTimeNS, int totalHitCount) throws IOException {
     if (out != null) {
       try {
         // NOTE: can cause NPE here (we are not sync'd)
         // but caller will print & ignore it...
-        out.write(String.format(Locale.ENGLISH, "%8d:%9d:%11.1f", task.taskID, totalHitCount, queueTimeNS/1000000.0).getBytes("UTF-8"));
+        out.write(String.format(Locale.ENGLISH, "%8d:%9d:%16d:%16d", task.taskID, totalHitCount, queueTimeNS, processTimeNS).getBytes("UTF-8"));
       } catch (SocketException se) {
         System.out.println("Ignore SocketException: " + se);
         queue.clear();
@@ -153,4 +153,3 @@ class RemoteTaskSource extends Thread implements TaskSource {
     }
   }
 }
-

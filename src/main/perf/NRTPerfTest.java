@@ -211,13 +211,13 @@ public class NRTPerfTest {
 		}
 
 		@Override
-		public void taskDone(Task task, long queueTimeNS, int toalHitCount) {}
+		public void taskDone(Task task, long queueTimeNS, long processTimeNS, int toalHitCount) {}
 	}
 
 	static final AtomicInteger currentQT = new AtomicInteger();
 	static AtomicInteger[] docsIndexedByTime;
 	static AtomicInteger[] searchesByTime;
-	static AtomicLong[] totalUpdateTimeByTime; 
+	static AtomicLong[] totalUpdateTimeByTime;
 	static int statsEverySec;
 
 	public static void main(String[] args) throws Exception {
@@ -387,7 +387,7 @@ public class NRTPerfTest {
 		TaskParser taskParser = new TaskParser(indexState, qp, field, 10, random, true);
 		final TaskSource tasks = new RandomTaskSource(taskParser, tasksFile, random) {
 			@Override
-			public void taskDone(Task task, long queueTimeNS, int toalHitCount) {
+			public void taskDone(Task task, long queueTimeNS, long processTimeNS, int toalHitCount) {
 				searchesByTime[currentQT.get()].incrementAndGet();
 			}
 		};
@@ -431,8 +431,8 @@ public class NRTPerfTest {
 						other = "";
 					}
 					int prev = prevQT - 1;
-					System.out.println(String.format("QT %d searches=%d docs=%d reopens=%s totUpdateTime=%d", 
-							prev, 
+					System.out.println(String.format("QT %d searches=%d docs=%d reopens=%s totUpdateTime=%d",
+							prev,
 							searchesByTime[prev].get(),
 							docsIndexedByTime[prev].get(),
 							reopensByTime[prev].get() + other,
@@ -448,7 +448,7 @@ public class NRTPerfTest {
 
 		System.out.println("By time:");
 		for (int i = 0; i < searchesByTime.length - 2; i++) {
-			System.out.println(String.format("  %d searches=%d docs=%d reopens=%d totUpdateTime=%d", 
+			System.out.println(String.format("  %d searches=%d docs=%d reopens=%d totUpdateTime=%d",
 					i*statsEverySec,
 					searchesByTime[i].get(),
 					docsIndexedByTime[i].get(),

@@ -20,8 +20,9 @@ package perf;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import probe.Affinity;
 
-public class TaskThreads {  
+public class TaskThreads {
 
 	private final Thread[] threads;
 	final CountDownLatch startLatch = new CountDownLatch(1);
@@ -72,6 +73,8 @@ public class TaskThreads {
 
 		@Override
 		public void run() {
+		  System.out.println("TaskThread " + threadID + " set to CPU " + threadID);
+		  Affinity.setCPUAffinity(threadID);
 			try {
 				startLatch.await();
 			} catch (InterruptedException ie) {
@@ -93,7 +96,8 @@ public class TaskThreads {
 						throw new RuntimeException(ioe);
 					}
 					try {
-						tasks.taskDone(task, t0-task.recvTimeNS, task.totalHitCount);
+					  final long t1 = System.nanoTime();
+					  tasks.taskDone(task, t0-task.recvTimeNS, t1-t0, task.totalHitCount);
 					} catch (Exception e) {
 						System.out.println(Thread.currentThread().getName() + ": ignoring exc:");
 						e.printStackTrace();

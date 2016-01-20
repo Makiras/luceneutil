@@ -117,7 +117,7 @@ class LocalTaskSource implements TaskSource {
   }
 
   @Override
-  public void taskDone(Task task, long queueTimeNS, int toalHitCount) {
+  public void taskDone(Task task, long queueTimeNS, long processTimeNS, int toalHitCount) {
   }
 
   static List<Task> loadTasks(TaskParser taskParser, String filePath) throws IOException, ParseException {
@@ -143,5 +143,5 @@ class LocalTaskSource implements TaskSource {
     taskFile.close();
     return tasks;
   }
-  
+
 }
