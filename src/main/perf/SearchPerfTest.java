@@ -74,6 +74,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.Version;
 
 import perf.IndexThreads.Mode;
+import probe.Affinity;
 
 // TODO
 //   - post queries on pao
@@ -140,6 +141,8 @@ public class SearchPerfTest {
     final String dirImpl = args.getString("-dirImpl");
 
     OpenDirectory od = OpenDirectory.get(dirImpl);
+    Affinity.initPerf();
+    Affinity.initSignal();
 
     /*
     } else if (dirImpl.equals("NativePosixMMapDirectory")) {

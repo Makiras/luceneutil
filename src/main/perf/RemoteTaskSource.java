@@ -30,6 +30,8 @@ import java.util.Locale;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
+import probe.Affinity;
+
 // Serves up tasks from remote client
 class RemoteTaskSource extends Thread implements TaskSource {
   private final ServerSocket serverSocket;
@@ -61,7 +63,8 @@ class RemoteTaskSource extends Thread implements TaskSource {
   public void run() {
     // Start server socket and accept only one client
     // connection, which will feed us the requests:
-
+    System.out.println("RemoteTaskSource is running, pin itself on CPU" + this.numThreads);
+    Affinity.setCPUAffinity(this.numThreads);
     newClient: while(true) {
       Socket socket = null;
       InputStream in;
@@ -80,6 +83,7 @@ class RemoteTaskSource extends Thread implements TaskSource {
         continue;
       }
       System.out.println("    connection!");
+      Affinity.postSignal(-1,-1,this.numThreads);
 
       try {
         final byte[] buffer = new byte[MAX_BYTES];
@@ -114,6 +118,7 @@ class RemoteTaskSource extends Thread implements TaskSource {
             }
             break;
           }
+
           Task task;
           try {
             task = taskParser.parseOneTask(s);
@@ -124,6 +129,7 @@ class RemoteTaskSource extends Thread implements TaskSource {
           task.recvTimeNS = System.nanoTime();
           task.taskID = taskCount++;
           queue.put(task);
+	  Affinity.postEnqueSignal();
           //System.out.println("S: add " + s + "; size=" + queue.size());
         }
       } catch (Exception e) {
@@ -143,7 +149,24 @@ class RemoteTaskSource extends Thread implements TaskSource {
       try {
         // NOTE: can cause NPE here (we are not sync'd)
         // but caller will print & ignore it...
-        out.write(String.format(Locale.ENGLISH, "%8d:%9d:%16d:%16d", task.taskID, totalHitCount, queueTimeNS, processTimeNS).getBytes("UTF-8"));
+	synchronized(out){
+	  out.write(String.format(Locale.ENGLISH, "%8d:%9d:%16d:%16d", task.taskID, totalHitCount, queueTimeNS, processTimeNS).getBytes("UTF-8"));
+	}
+      } catch (SocketException se) {
+        System.out.println("Ignore SocketException: " + se);
+        queue.clear();
+      } catch (UnsupportedEncodingException uee) {
+        throw new RuntimeException(uee);
+      }
+    }
+  }
+
+  public void taskReport(Task task, int totalHitCount, long receiveTime, long processTime, long finishTime, long ins, long cycles) throws IOException {
+    if (out != null) {
+      try {
+        // NOTE: can cause NPE here (we are not sync'd)
+        // but caller will print & ignore it...
+        out.write(String.format(Locale.ENGLISH, "%8d:%9d:%16d:%16d:%16d:%16d:%16d", task.taskID, totalHitCount, receiveTime, processTime, finishTime, ins, cycles).getBytes("UTF-8"));
       } catch (SocketException se) {
         System.out.println("Ignore SocketException: " + se);
         queue.clear();

@@ -22,6 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import probe.Affinity;
 
+
 public class TaskThreads {
 
 	private final Thread[] threads;
@@ -75,6 +76,12 @@ public class TaskThreads {
 		public void run() {
 		  System.out.println("TaskThread " + threadID + " set to CPU " + threadID);
 		  Affinity.setCPUAffinity(threadID);
+		  String[] eventNames = {"INSTRUCTION_RETIRED","UNHALTED_CORE_CYCLES"};
+		  Affinity.createEvents(eventNames);
+		  long[] eventVals = new long[3];
+		  //cerate perf counters
+
+
 			try {
 				startLatch.await();
 			} catch (InterruptedException ie) {
@@ -85,25 +92,36 @@ public class TaskThreads {
 			try {
 				while (!stop.get()) {
 					final Task task = tasks.nextTask();
+					Affinity.postDequeSignal();
+					Affinity.postSignal(task.taskID, 1, threadID);
+
 					if (task == null) {
 						// Done
 						break;
 					}
 					final long t0 = System.nanoTime();
+					Affinity.readEvents(eventVals);
+
 					try {
 						task.go(indexState);
 					} catch (IOException ioe) {
 						throw new RuntimeException(ioe);
 					}
+					final long t1 = System.nanoTime();
 					try {
-					  final long t1 = System.nanoTime();
-					  tasks.taskDone(task, t0-task.recvTimeNS, t1-t0, task.totalHitCount);
+					  //					  tasks.taskDone(task, t0-task.recvTimeNS, t1-t0, task.totalHitCount);
+					  RemoteTaskSource rs = (RemoteTaskSource) tasks;
+					  rs.taskReport(task, task.totalHitCount, task.recvTimeNS, t0, t1, eventVals[0], eventVals[1]);
+					  //System.out.println("ptime: " + (t0-task.recvTimeNS)/1000 + "ltime: " +  (t1-task.recvTimeNS)/1000);
 					} catch (Exception e) {
-						System.out.println(Thread.currentThread().getName() + ": ignoring exc:");
+					  System.out.println(Thread.currentThread().getName() + ": ignoring exc:");
 						e.printStackTrace();
 					}
 					task.runTimeNanos = System.nanoTime()-t0;
 					task.threadID = threadID;
+					Affinity.postSignal(task.taskID, 2, threadID);
+
+					//					System.out.println(task.taskID + ":" + (System.nanoTime() - t1) + ":" + (t1 - t0) + ":" + (t0 - task.recvTimeNS));
 				}
 			} catch (Exception e) {
 				throw new RuntimeException(e);
