@@ -20,7 +20,7 @@ package perf;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
-import probe.Affinity;
+import perf.Affinity;
 
 
 public class TaskThreads {

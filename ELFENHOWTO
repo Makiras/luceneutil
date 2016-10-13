@@ -1,0 +1,39 @@
+This repository forked Luceneutil. It implements the Lucene searching
+benchmark used in the paper "Elfen Scheduling: Fine-Grain Principled
+Borrowing from Latency-Critical Workloads using Simultaneous Multithreading".
+
+Beside requirements of the original Luceneutil, you need to install
+libpfm library (http://perfmon2.sourceforge.net). This repository records
+the number of retired cycles and instructions of each request via Linux
+kernel perf interface.
+
+# Usage
+
+1. Download the wikipedia data
+python src/python/setup.py -download
+
+
+2. Build the Lucene
+
+"cd ../; git clone git://git.apache.org/lucene-solr.git trunk;"
+"cd trunk; git checkout -b new_branch ceb66d34c0a6f840ec195f6da85e323de5e9a04d"
+"cd ./lucene; ant compile-test"
+
+3. Build the searching benchmark
+
+Please set the parameters in "./scripts/elfenSetting.sh" correctly, then execute
+"./scripts/setupforelfen.sh"
+
+4. Build the index
+
+Executing "./scripts/createIndex.sh" creates the index at INDEX_DIR. "-docCountLimit"
+controls the number of wikipedia documents for indexing.
+
+5. Run the server
+
+Executing "./scripts/runSearchServer.sh" launches the searching server. "-searchThreadCount"
+controls the number of worker that handles searching requests.
+
+6. Sending requests
+
+Clone or copy this repository to a remote machine, then "cd ./elfenDemo; ./send.sh"

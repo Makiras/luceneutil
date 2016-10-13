@@ -74,7 +74,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.Version;
 
 import perf.IndexThreads.Mode;
-import probe.Affinity;
+import perf.Affinity;
 
 // TODO
 //   - post queries on pao

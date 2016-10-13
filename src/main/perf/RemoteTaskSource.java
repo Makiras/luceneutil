@@ -30,7 +30,7 @@ import java.util.Locale;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
-import probe.Affinity;
+import perf.Affinity;
 
 // Serves up tasks from remote client
 class RemoteTaskSource extends Thread implements TaskSource {
