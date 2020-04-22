@@ -35,6 +35,10 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.CharArraySet;
@@ -45,7 +49,7 @@ import org.apache.lucene.analysis.standard.ClassicAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.PostingsFormat;
-import org.apache.lucene.codecs.lucene70.Lucene70Codec;
+import org.apache.lucene.codecs.lucene84.Lucene84Codec;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.taxonomy.TaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyReader;
@@ -68,9 +72,9 @@ import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.search.spell.DirectSpellChecker;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NRTCachingDirectory;
-import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.Constants;
 import org.apache.lucene.util.InfoStream;
+import org.apache.lucene.util.NamedThreadFactory;
 import org.apache.lucene.util.PrintStreamInfoStream;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.Version;
@@ -184,13 +188,7 @@ public class SearchPerfTest {
       }
       */
 
-    final RAMDirectory ramDir;
     dir0 = od.open(Paths.get(dirPath));
-    if (dir0 instanceof RAMDirectory) {
-      ramDir = (RAMDirectory) dir0;
-    } else {
-      ramDir = null;
-    }
 
     // TODO: NativeUnixDir?
 
@@ -200,8 +198,19 @@ public class SearchPerfTest {
     final String fieldName = args.getString("-field");
     final boolean printHeap = args.getFlag("-printHeap");
     final boolean doPKLookup = args.getFlag("-pk");
+    final boolean doConcurrentSearches = args.getFlag("-concurrentSearches");
     final int topN = args.getInt("-topN");
     final boolean doStoredLoads = args.getFlag("-loadStoredFields");
+
+    int cores = Runtime.getRuntime().availableProcessors();
+
+    final ExecutorService executorService;
+    if (doConcurrentSearches) {
+      executorService = new ThreadPoolExecutor(cores, cores, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(),
+                                               new NamedThreadFactory("ConcurrentSearches"));
+    } else {
+      executorService = null;
+    }
 
     // Used to choose which random subset of tasks we will
     // run, to generate the PKLookup tasks, and to generate
@@ -225,7 +234,8 @@ public class SearchPerfTest {
     System.out.println("topN " + topN);
     System.out.println("JVM " + (Constants.JRE_IS_64BIT ? "is" : "is not") + " 64bit");
     System.out.println("Pointer is " + RamUsageEstimator.NUM_BYTES_OBJECT_REF + " bytes");
-
+    System.out.println("Concurrent segment reads is " + doConcurrentSearches);
+ 
     final Analyzer a;
     if (analyzer.equals("EnglishAnalyzer")) {
       a = new EnglishAnalyzer();
@@ -280,9 +290,8 @@ public class SearchPerfTest {
 
       if (verbose) {
         InfoStream.setDefault(new PrintStreamInfoStream(System.out));
-      }
-
-      if (!dirImpl.equals("RAMDirectory") && !dirImpl.equals("RAMExceptDirectPostingsDirectory")) {
+      }      
+      if (!dirImpl.equals("RAMExceptDirectPostingsDirectory")) {
         System.out.println("Wrap NRTCachingDirectory");
         dir0 = new NRTCachingDirectory(dir0, 20, 400.0);
       }
@@ -296,11 +305,7 @@ public class SearchPerfTest {
 
       // TODO: also RAMDirExceptDirect...?  need to
       // ... block deletes against wrapped FSDir?
-      if (dirImpl.equals("RAMDirectory")) {
-        // Let IW remove files only referenced by starting commit:
-        iwc.setIndexDeletionPolicy(new KeepNoCommitsDeletionPolicy());
-      }
-
+      
       if (commit != null && commit.length() > 0) {
         System.out.println("Opening writer on commit=" + commit);
         iwc.setIndexCommit(PerfUtils.findCommitPoint(commit, dir));
@@ -311,7 +316,7 @@ public class SearchPerfTest {
       //((TieredMergePolicy) iwc.getMergePolicy()).setReclaimDeletesWeight(3.0);
       //((TieredMergePolicy) iwc.getMergePolicy()).setMaxMergeAtOnce(4);
 
-      final Codec codec = new Lucene70Codec() {
+      final Codec codec = new Lucene84Codec() {
           @Override
           public PostingsFormat getPostingsFormatForField(String field) {
             return PostingsFormat.forName(field.equals("id") ?
@@ -330,7 +335,7 @@ public class SearchPerfTest {
           public void warm(LeafReader reader) throws IOException {
             final long t0 = System.currentTimeMillis();
             //System.out.println("DO WARM: " + reader);
-            IndexSearcher s = new IndexSearcher(reader);
+            IndexSearcher s = createIndexSearcher(reader, executorService);
             s.setQueryCache(null); // don't bench the cache
             s.search(new TermQuery(new Term(fieldName, "united")), 10);
             final long t1 = System.currentTimeMillis();
@@ -339,7 +344,7 @@ public class SearchPerfTest {
         });
 
       writer = new IndexWriter(dir, iwc);
-      System.out.println("Initial writer.maxDoc()=" + writer.maxDoc());
+      System.out.println("Initial writer.maxDoc()=" + writer.getDocStats().maxDoc);
 
       // TODO: add -nrtBodyPostingsOffsets instead of
       // hardwired false:
@@ -351,7 +356,7 @@ public class SearchPerfTest {
       mgr = new SearcherManager(writer, new SearcherFactory() {
           @Override
           public IndexSearcher newSearcher(IndexReader reader, IndexReader previous) {
-            IndexSearcher s = new IndexSearcher(reader);
+            IndexSearcher s = createIndexSearcher(reader, executorService);
             s.setQueryCache(null); // don't bench the cache
             s.setSimilarity(sim);
             return s;
@@ -380,21 +385,10 @@ public class SearchPerfTest {
                 reopenCount++;
                 IndexSearcher s = mgr.acquire();
                 try {
-                  if (ramDir != null) {
-                    System.out.println(String.format(Locale.ENGLISH, "%.1fs: index: %d bytes in RAMDir; writer.maxDoc()=%d; searcher.maxDoc()=%d; searcher.numDocs()=%d",
-                                                     (System.currentTimeMillis() - startMS)/1000.0, ramDir.ramBytesUsed(),
-                                                     writer.maxDoc(), s.getIndexReader().maxDoc(), s.getIndexReader().numDocs()));
-                    //String[] l = ramDir.listAll();
-                    //Arrays.sort(l);
-                    //for(String f : l) {
-                    //System.out.println("  " + f + ": " + ramDir.fileLength(f));
-                    //}
-                  } else {
-                    System.out.println(String.format(Locale.ENGLISH, "%.1fs: done reopen; writer.maxDoc()=%d; searcher.maxDoc()=%d; searcher.numDocs()=%d",
-                                                     (System.currentTimeMillis() - startMS)/1000.0,
-                                                     writer.maxDoc(), s.getIndexReader().maxDoc(),
-                                                     s.getIndexReader().numDocs()));
-                  }
+                  System.out.println(String.format(Locale.ENGLISH, "%.1fs: done reopen; writer.maxDoc()=%d; searcher.maxDoc()=%d; searcher.numDocs()=%d",
+                                                   (System.currentTimeMillis() - startMS)/1000.0,
+                                                   writer.getDocStats().maxDoc, s.getIndexReader().maxDoc(),
+                                                   s.getIndexReader().numDocs()));
                 } finally {
                   mgr.release(s);
                 }
@@ -419,10 +413,11 @@ public class SearchPerfTest {
         // open last commit
         reader = DirectoryReader.open(dir);
       }
-      IndexSearcher s = new IndexSearcher(reader);
+
+      IndexSearcher s = createIndexSearcher(reader, executorService);
       s.setQueryCache(null); // don't bench the cache
       s.setSimilarity(sim);
-      System.out.println("maxDoc=" + reader.maxDoc() + " numDocs=" + reader.numDocs() + " %tg deletes=" + (100.*reader.maxDoc()/reader.numDocs()));
+      System.out.println("maxDoc=" + reader.maxDoc() + " numDocs=" + reader.numDocs() + " %tg live docs=" + (100.*reader.maxDoc()/reader.numDocs()));
 
       mgr = new SingleIndexSearcher(s);
     }
@@ -530,7 +525,7 @@ public class SearchPerfTest {
       // Load the tasks from a file:
       final int taskRepeatCount = args.getInt("-taskRepeatCount");
       final int numTaskPerCat = args.getInt("-tasksPerCat");
-      tasks = new LocalTaskSource(indexState, taskParser, tasksFile, staticRandom, random, numTaskPerCat, taskRepeatCount, doPKLookup);
+      tasks = new LocalTaskSource(indexState, taskParser, tasksFile, staticRandom, random, numTaskPerCat, taskRepeatCount, doPKLookup, doConcurrentSearches);
       System.out.println("Task repeat count " + taskRepeatCount);
       System.out.println("Tasks file " + tasksFile);
       System.out.println("Num task per cat " + numTaskPerCat);
@@ -594,6 +589,10 @@ public class SearchPerfTest {
       allTasks.clear();
     }
 
+    if (executorService != null) {
+      executorService.shutdownNow();
+    }
+
     mgr.close();
 
     if (taxoReader != null) {
@@ -626,4 +625,7 @@ public class SearchPerfTest {
     out.close();
   }
 
+  private static IndexSearcher createIndexSearcher(IndexReader reader, ExecutorService executorService) {
+      return new IndexSearcher(reader, executorService);
+  }
 }

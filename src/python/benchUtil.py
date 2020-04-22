@@ -31,7 +31,7 @@ import signal
 import QPSChart
 import IndexChart
 import subprocess
-  
+
 # Skip the first N runs of a given category (cold) or particular task (hot):
 WARM_SKIP = 3
 
@@ -105,18 +105,6 @@ def getArg(argName, default, hasArg=True):
       del sys.argv[idx]
   return v
 
-# NOTE: only detects back to 3.0
-def getLuceneVersion(checkout):
-  checkoutPath = checkoutToPath(checkout)
-  if os.path.isdir('%s/contrib/benchmark' % checkoutPath):
-    return '3.0'
-  elif os.path.isdir('%s/lucene/contrib/benchmark' % checkoutPath):
-    return '3.x'
-  elif os.path.isdir('%s/lucene/benchmark' % checkoutPath):
-    return '4.0'
-  else:
-    raise RuntimeError('cannot determine Lucene version for checkout %s' % checkoutPath)
-
 def checkoutToPath(checkout):
   return '%s/%s' % (constants.BASE_DIR, checkout)
 
@@ -152,7 +140,7 @@ class SearchTask:
           print 'WARNING: expandedTermCounts differ for %s: %s vs %s' % (self, self.expandedTermCount, other.expandedTermCount)
           # self.fail('wrong expandedTermCount: %s vs %s' % (self.expandedTermCount, other.expandedTermCount))
 
-      if verifyCounts and self.hitCount != other.hitCount:
+      if False and verifyCounts and self.hitCount != other.hitCount:
         self.fail('wrong hitCount: %s vs %s' % (self.hitCount, other.hitCount))
 
       if len(self.hits) != len(other.hits):
@@ -324,15 +312,15 @@ def collapseDups(hits):
       newHits[-1][0].sort()
   return newHits
 
-reSearchTaskOld = re.compile('cat=(.*?) q=(.*?) s=(.*?) group=null hits=(null|[0-9]+) facets=(.*?)$')
-reSearchGroupTaskOld = re.compile('cat=(.*?) q=(.*?) s=(.*?) group=(.*?) groups=(.*?) hits=([0-9]+) groupTotHits=([0-9]+)(?: totGroupCount=(.*?))? facets=(.*?)$', re.DOTALL)
-reSearchTask = re.compile('cat=(.*?) q=(.*?) s=(.*?) f=(.*?) group=null hits=(null|[0-9]+)$')
-reSearchGroupTask = re.compile('cat=(.*?) q=(.*?) s=(.*?) f=(.*?) group=(.*?) groups=(.*?) hits=([0-9]+) groupTotHits=([0-9]+)(?: totGroupCount=(.*?))?$', re.DOTALL)
+reSearchTaskOld = re.compile('cat=(.*?) q=(.*?) s=(.*?) group=null hits=(null|[0-9]+\+?) facets=(.*?)$')
+reSearchGroupTaskOld = re.compile('cat=(.*?) q=(.*?) s=(.*?) group=(.*?) groups=(.*?) hits=([0-9]+\+?) groupTotHits=([0-9]+)(?: totGroupCount=(.*?))? facets=(.*?)$', re.DOTALL)
+reSearchTask = re.compile('cat=(.*?) q=(.*?) s=(.*?) f=(.*?) group=null hits=(null|[0-9]+\+?)$')
+reSearchGroupTask = re.compile('cat=(.*?) q=(.*?) s=(.*?) f=(.*?) group=(.*?) groups=(.*?) hits=([0-9]+\+?) groupTotHits=([0-9]+)(?: totGroupCount=(.*?))?$', re.DOTALL)
 reSearchHitScore = re.compile('doc=(.*?) score=(.*?)$')
 reSearchHitField = re.compile('doc=(.*?) .*?=(.*?)$')
 reRespellHit = re.compile('(.*?) freq=(.*?) score=(.*?)$')
 rePKOrd = re.compile(r'PK(.*?)\[')
-reOneGroup = re.compile('group=(.*?) totalHits=(.*?) groupRelevance=(.*?)$', re.DOTALL)
+reOneGroup = re.compile('group=(.*?) totalHits=(.*?)(?: hits)? groupRelevance=(.*?)$', re.DOTALL)
 reHeap = re.compile('HEAP: ([0-9]+)$')
 
 def parseResults(resultsFiles):
@@ -344,7 +332,7 @@ def parseResults(resultsFiles):
     if not os.path.exists(resultsFile):
       continue
 
-    if os.path.exists(resultsFile + '.stdout') and os.path.getsize(resultsFile + '.stdout') > 3072:
+    if os.path.exists(resultsFile + '.stdout') and os.path.getsize(resultsFile + '.stdout') > 10*1024:
       raise RuntimeError('%s.stdout is %d bytes; leftover System.out.println?' % (resultsFile, os.path.getsize(resultsFile + '.stdout')))
     
     # print 'parse %s' % resultsFile
@@ -385,9 +373,9 @@ def parseResults(resultsFiles):
           # print 'CAT %s' % cat
 
           if hitCount == 'null':
-            task.hitCount = 0
+            task.hitCount = "0"
           else:
-            task.hitCount = int(hitCount)
+            task.hitCount = hitCount
           if sort == '<string: "title">' or sort == '<string: "titleDV">':
             task.sort = 'Title'
           elif sort.startswith('<long: "datenum">') or sort.startswith('<long: "lastModNDV">'):
@@ -540,6 +528,27 @@ def parseResults(resultsFiles):
 
   return taskIters, heaps
 
+# Collect task latencies segregated by categories across all the runs of the task
+# This allows calculating P50, P90, P99 and P100 latencies per task
+def collateTaskLatencies(resultIters):
+  iters = []
+  for results in resultIters:
+    byCat = {}
+    iters.append(byCat)
+    for task in results:
+      if isinstance(task, SearchTask):
+        key = task.cat, task.sort
+      else:
+        key = task.cat
+
+      if key not in byCat:
+        byCat[key] = ([])
+
+      l = byCat[key]
+      l.append(task.msec)
+
+  return iters
+
 def collateResults(resultIters):
   iters = []
   for results in resultIters:
@@ -564,7 +573,7 @@ def collateResults(resultIters):
 
   return iters
 
-def agg(iters, cat, name):
+def agg(iters, cat, name, verifyCounts):
 
   bestAvgMS = None
   lastHitCount = None
@@ -646,7 +655,7 @@ def agg(iters, cat, name):
           
       if isinstance(task, SearchTask):
         if task.groupField is None:
-          totHitCount += task.hitCount
+          totHitCount = sum_hit_count(totHitCount, task.hitCount)
         else:
           for group in task.groups:
             totHitCount += group[1]
@@ -658,7 +667,7 @@ def agg(iters, cat, name):
     
     if lastHitCount is None:
       lastHitCount = totHitCount
-    elif totHitCount != lastHitCount:
+    elif verifyCounts and totHitCount != lastHitCount:
       raise RuntimeError('different hit counts: %s vs %s' % (lastHitCount, totHitCount))
 
   if VERBOSE:
@@ -669,6 +678,19 @@ def agg(iters, cat, name):
     
   return accumMS, totHitCount
 
+def sum_hit_count(hc1, hc2):
+  lower_bound = False
+  if isinstance(hc1, basestring) and hc1.endswith('+'):
+    lower_bound = True
+    hc1 = int(hc1[:-1])
+  else:
+    hc1 = int(hc1)
+  if isinstance(hc2, basestring) and hc2.endswith('+'):
+    lower_bound = True
+    hc2 = int(hc2[:-1])
+  else:
+    hc2 = int(hc2)
+  return str(hc1+hc2) + (lower_bound and "+" or "")
 
 def stats(l):
   sum = 0
@@ -691,6 +713,8 @@ def run(cmd, logFile=None, indent='    '):
     if logFile is not None and os.path.getsize(logFile) < 50*1024:
       print open(logFile).read()
     raise RuntimeError('failed: %s [wd %s]; see logFile %s' % (cmd, os.getcwd(), logFile))
+
+reCoreJar = re.compile('lucene-core-[0-9]\.[0-9]\.[0-9](?:-SNAPSHOT)?\.jar')
 
 class RunAlgs:
 
@@ -817,6 +841,10 @@ class RunAlgs:
       if index.disableIOThrottle:
         w('-disableIOThrottle')
 
+      if index.indexSort:
+        w('-indexSort')
+        w(index.indexSort)
+
       cmd = ' '.join(cmd)
 
       fullLogFile = '%s/%s.%s.log' % (constants.LOGS_DIR, id, index.getName())
@@ -857,40 +885,44 @@ class RunAlgs:
   def getClassPath(self, checkout):
     path = checkoutToPath(checkout)
     cp = []
-    version = getLuceneVersion(checkout)
 
     # We use the jar file for core to leverage the MR JAR
     core_jar_file = None
-    for filename in os.listdir('%s/lucene/build/core' % path):
-      if filename.startswith('lucene-core-') and filename.endswith('.jar'):
-        core_jar_file = '%s/lucene/build/core/%s' % (path, filename)
+    for filename in os.listdir('%s/lucene/core/build/libs' % path):
+      if reCoreJar.match(filename) is not None:
+        core_jar_file = '%s/lucene/core/build/libs/%s' % (path, filename)
         break
     if core_jar_file is None:
-      raise RuntimeError('can\'t find core JAR file in %s' % ('%s/lucene/build/core' % path))
+      raise RuntimeError("can't find core JAR file in %s" % ('%s/lucene/core/build/libs' % path))
 
     cp.append(core_jar_file)
-    cp.append('%s/lucene/build/core/classes/test' % path)
-    cp.append('%s/lucene/build/sandbox/classes/java' % path)
-    cp.append('%s/lucene/build/misc/classes/java' % path)
-    cp.append('%s/lucene/build/facet/classes/java' % path)
-    cp.append('/home/mike/src/lucene-c-boost/dist/luceneCBoost-SNAPSHOT.jar')
-    if version == '4.0':
-      cp.append('%s/lucene/build/analysis/common/classes/java' % path)
-      cp.append('%s/lucene/build/analysis/icu/classes/java' % path)
-      cp.append('%s/lucene/build/queryparser/classes/java' % path)
-      cp.append('%s/lucene/build/grouping/classes/java' % path)
-      cp.append('%s/lucene/build/suggest/classes/java' % path)
-      cp.append('%s/lucene/build/highlighter/classes/java' % path)
-      cp.append('%s/lucene/build/codecs/classes/java' % path)
-      cp.append('%s/lucene/build/queries/classes/java' % path)
-      self.addJars(cp, '%s/lucene/facet/lib' % path)
-    elif version == '3.x':
-      cp.append('%s/lucene/build/contrib/analyzers/common/classes/java' % path)
-      cp.append('%s/lucene/build/contrib/spellchecker/classes/java' % path)
-    else:
-      cp.append('%s/build/contrib/analyzers/common/classes/java' % path)
-      cp.append('%s/build/contrib/spellchecker/classes/java' % path)
+    cp.append('%s/lucene/core/build/classes/java/test' % path)
+    cp.append('%s/lucene/sandbox/build/classes/java/main' % path)
+    cp.append('%s/lucene/misc/build/classes/java/main' % path)
+    cp.append('%s/lucene/facet/build/classes/java/main' % path)
+    cp.append('%s/lucene/analysis/common/build/classes/java/main' % path)
+    cp.append('%s/lucene/analysis/icu/build/classes/java/main' % path)
+    cp.append('%s/lucene/queryparser/build/classes/java/main' % path)
+    cp.append('%s/lucene/grouping/build/classes/java/main' % path)
+    cp.append('%s/lucene/suggest/build/classes/java/main' % path)
+    cp.append('%s/lucene/highlighter/build/classes/java/main' % path)
+    cp.append('%s/lucene/codecs/build/classes/java/main' % path)
+    cp.append('%s/lucene/queries/build/classes/java/main' % path)
+    
+    # self.addJars(cp, '%s/lucene/facet/lib' % path)
 
+    # TODO: this is horrible hackity abstraction violation!!  can i somehow just ask
+    # gradle to tell me necessary dependency paths?
+    found = False
+    for root_path, dirs, files in os.walk(os.path.expanduser('~/.gradle/caches/modules-2/files-2.1/com.carrotsearch/hppc')):
+      for file in files:
+        if file == 'hppc-0.8.1.jar':
+          cp.append('%s/%s' % (root_path, file))
+          found = True
+
+    if not found:
+      raise RuntimeError('unable to locate hppc-0.8.1.jar dependency for lucene/facet!')
+    
     # so perf.* is found:
     lib = os.path.join(checkoutToUtilPath(checkout), "lib")
     for f in os.listdir(lib):
@@ -910,21 +942,21 @@ class RunAlgs:
       if competitor.checkout not in self.compiledCheckouts:
         self.compiledCheckouts.add(competitor.checkout);
         # for core we build a JAR in order to benefit from the MR JAR stuff
+        os.chdir(checkoutPath)
         for module in ['core']:
-          modulePath = '%s/lucene/%s' % (checkoutPath, module)
-          os.chdir(modulePath)
-          print '  %s...' % modulePath
-          run('%s jar' % constants.ANT_EXE, '%s/compile.log' % constants.LOGS_DIR)
+          print 'compile lucene:core...'
+          run('%s lucene:core:jar' % constants.GRADLEW_EXE, '%s/compile.log' % constants.LOGS_DIR)
         for module in ('suggest', 'highlighter', 'misc',
-                       'analysis/common', 'grouping',
-                       'codecs', 'facet', 'sandbox'):
-          modulePath = '%s/lucene/%s' % (checkoutPath, module)
-          classesPath = '%s/lucene/build/%s/classes/java' % (checkoutPath, module)
-          # Try to be faster than ant; this may miss changes, e.g. a static final constant changed in core that is used in another module:
-          if common.getLatestModTime('%s/src/java' % modulePath) > common.getLatestModTime(classesPath, '.class'):
-            print '  %s...' % modulePath
-            os.chdir(modulePath)
-            run('%s compile' % constants.ANT_EXE, '%s/compile.log' % constants.LOGS_DIR)
+                       'analysis:common', 'grouping',
+                       'codecs', 'facet', 'sandbox',
+                       'queryparser'):
+          # Try to be faster; this may miss changes, e.g. a static final constant changed in core that is used in another module:
+          modulePath = '%s/lucene/%s' % (checkoutPath, module.replace(':', '/'))
+          classesPath = '%s/build/classes/java' % (modulePath)
+          lastCompileTime = common.getLatestModTime(classesPath, '.class')
+          if common.getLatestModTime('%s/src/java' % modulePath) > lastCompileTime:
+            print 'compile lucene:%s...' % module
+            run('%s lucene:%s:compileJava' % (constants.GRADLEW_EXE, module), '%s/compile.log' % constants.LOGS_DIR)
 
       print '  %s' % path
       os.chdir(path)      
@@ -968,6 +1000,11 @@ class RunAlgs:
     else:
       doSort = ''
 
+    if c.concurrentSearches:
+      doConcurrentSegmentReads = '-concurrentSearches'
+    else:
+      doConcurrentSegmentReads = ''
+
     command = []
     command.extend(c.javaCommand.split())
     command.append('-classpath')
@@ -996,6 +1033,8 @@ class RunAlgs:
     command.append(str(c.competition.taskCountPerCat))
     if c.doSort:
       command.append('-sort')
+    if c.concurrentSearches:
+      command.append('-concurrentSearches')
     command.append('-staticSeed')
     command.append(str(staticSeed))
     command.append('-seed')
@@ -1010,6 +1049,7 @@ class RunAlgs:
     command.append(logFile)
     command.append('-topN')
     command.append('10')
+    #command.append('500')
     if filter is not None:
       command.append('-filter')
       command.append('%.2f' % filter)
@@ -1025,7 +1065,7 @@ class RunAlgs:
           (c.javaCommand, cp, c.directory,
           nameToIndexPath(c.index.getName()), c.analyzer, c.tasksFile,
           c.numThreads, c.competition.taskRepeatCount,
-          c.competition.taskCountPerCat, doSort, staticSeed, seed, c.similarity, c.commitPoint, c.hiliteImpl, logFile)
+          c.competition.taskCountPerCat, doSort, doConcurrentSegmentReads, staticSeed, seed, c.similarity, c.commitPoint, c.hiliteImpl, logFile)
       command += ' -topN 10'
       if filter is not None:
         command += ' %s %.2f' % filter
@@ -1040,7 +1080,6 @@ class RunAlgs:
     t0 = time.time()
     print '      run: %s' % ' '.join(command)
     #p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)    
-    #print 'command %s' % command
     p = subprocess.Popen(command, shell=False, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     if DO_PERF:
@@ -1097,6 +1136,33 @@ class RunAlgs:
       logFiles.append(logFile)
     return logFiles
 
+  def computeTaskLatencies(self, inputList, catSet):
+    resultLatencyMetrics = {}
+    for currentRecord in inputList:
+      for currentKey in currentRecord.keys():
+        catSet.add(currentKey)
+        currentCatLatencies = currentRecord[currentKey]
+        currentCatLatencies.sort()
+
+        resultLatencyMetrics[currentKey] = ({})
+        currentLatencyMetricsDict = resultLatencyMetrics[currentKey]
+
+        currentP0 = currentCatLatencies[0]
+        currentP50 = currentCatLatencies[(len(currentCatLatencies)-1)/2]
+        currentP90 = currentCatLatencies[int((len(currentCatLatencies)-1)*0.9)]
+        currentP99 = currentCatLatencies[int((len(currentCatLatencies)-1)*0.99)]
+        currentP999 = currentCatLatencies[int((len(currentCatLatencies)-1)*0.999)]
+        currentP100 = currentCatLatencies[len(currentCatLatencies)-1]
+
+        currentLatencyMetricsDict['p0'] = currentP0
+        currentLatencyMetricsDict['p50'] = currentP50
+        currentLatencyMetricsDict['p90'] = currentP90
+        currentLatencyMetricsDict['p99'] = currentP99
+        currentLatencyMetricsDict['p999'] = currentP999
+        currentLatencyMetricsDict['p100'] = currentP100
+    return resultLatencyMetrics
+
+
   def simpleReport(self, baseLogFiles, cmpLogFiles, jira=False, html=False, baseDesc='Standard', cmpDesc=None, writer=sys.stdout.write):
 
     baseRawResults, heapBase = parseResults(baseLogFiles)
@@ -1107,6 +1173,9 @@ class RunAlgs:
 
     baseResults = collateResults(baseRawResults)
     cmpResults = collateResults(cmpRawResults)
+
+    baseTaskLatencies = collateTaskLatencies(baseRawResults)
+    cmpTaskLatencies = collateTaskLatencies(cmpRawResults)
 
     cats = set()
     for l in (baseResults, cmpResults):
@@ -1151,8 +1220,8 @@ class RunAlgs:
 
       # baseMS, cmpMS are lists of milli-seconds of the run-time for
       # this task across the N JVMs:
-      baseMS, baseTotHitCount = agg(baseResults, cat, 'base')
-      cmpMS, cmpTotHitCount = agg(cmpResults, cat, 'cmp')
+      baseMS, baseTotHitCount = agg(baseResults, cat, 'base', self.verifyCounts)
+      cmpMS, cmpTotHitCount = agg(cmpResults, cat, 'cmp', self.verifyCounts)
 
       baseQPS = [1000.0/x for x in baseMS]
       cmpQPS = [1000.0/x for x in cmpMS]
@@ -1263,6 +1332,25 @@ class RunAlgs:
       print 'Chart saved to out.png... (wd: %s)' % os.getcwd()
                         
     w = writer
+
+    catSet = set()
+
+    baseLatencyMetrics = self.computeTaskLatencies(baseTaskLatencies, catSet)
+    cmpLatencyMetrics = self.computeTaskLatencies(cmpTaskLatencies, catSet)
+
+    for currentCat in catSet:
+      currentBaseMetrics = baseLatencyMetrics[currentCat] 
+      currentCmpMetrics = cmpLatencyMetrics[currentCat]
+      pctP50 = 100*(currentCmpMetrics['p50'] - currentBaseMetrics['p50'])/currentBaseMetrics['p50']
+      pctP90 = 100*(currentCmpMetrics['p90'] - currentBaseMetrics['p90'])/currentBaseMetrics['p90']
+      pctP99 = 100*(currentCmpMetrics['p99'] - currentBaseMetrics['p99'])/currentBaseMetrics['p99']
+      pctP999 = 100*(currentCmpMetrics['p999'] -
+              currentBaseMetrics['p999'])/currentBaseMetrics['p999']
+      pctP100 = 100*(currentCmpMetrics['p100'] - currentBaseMetrics['p100'])/currentBaseMetrics['p100']
+      print ('||Task %s||P50 Base %s||P50 Cmp %s||Pct Diff %s||P90 Base %s||P90 Cmp %s||Pct Diff %s||P99 Base %s||P99 Cmp %s||Pct Diff %s||P999 Base %s||P999 Cmp %s||Pct Diff %s||P100 Base %s||P100 Cmp %s||Pct Diff %s' %
+        (currentCat, currentBaseMetrics['p50'], currentCmpMetrics['p50'], pctP50, currentBaseMetrics['p90'], currentCmpMetrics['p90'], pctP90,
+         currentBaseMetrics['p99'], currentCmpMetrics['p99'], pctP99,
+         currentBaseMetrics['p999'], currentCmpMetrics['p999'], pctP999, currentBaseMetrics['p100'], currentCmpMetrics['p100'], pctP100))
 
     if jira:
       w('||Task||QPS %s||StdDev %s||QPS %s||StdDev %s||Pct diff||' %

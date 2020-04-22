@@ -20,8 +20,10 @@ package perf;
 import java.io.IOException;
 import java.util.List;
 
+import org.apache.lucene.search.TotalHits;
+
 interface TaskSource {
   public Task nextTask() throws InterruptedException;
-  public void taskDone(Task task, long queueTimeNS, long processTimeNS, int totalHitCount) throws IOException;
+  public void taskDone(Task task, long queueTimeNS, long processTimeNS, TotalHits totalHitCount) throws IOException;
   public List<Task> getAllTasks();
 }

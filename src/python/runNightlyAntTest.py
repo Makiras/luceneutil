@@ -7,7 +7,8 @@ import datetime
 import sys
 import constants
 
-reCompletedTestCount = re.compile(r', (\d+) tests')
+reCompletedTestCountGradle = re.compile(r': (\d+) test\(s\)')
+reCompletedTestCountAnt = re.compile(r', (\d+) tests')
 
 DEBUG = False
 
@@ -29,14 +30,24 @@ KNOWN_CHANGES_ANT_TEST = [
 def runOneDay(logFile):
 
   # nocommit svn up to the timestamp:
-  os.chdir('%s/%s/lucene' % (BASE_DIR, NIGHTLY_DIR))
+  #os.chdir('%s/%s/lucene' % (BASE_DIR, NIGHTLY_DIR))
+  os.chdir('%s/%s' % (BASE_DIR, NIGHTLY_DIR))
 
-  print('  ant test log: %s' % logFile)
+  print('  gradle test log: %s' % logFile)
   open(logFile + '.tmp', 'w').write('svn rev: %s\n\n' % os.popen('svnversion 2>&1').read())
   open(logFile + '.tmp', 'a').write('\n\njava version: %s\n\n' % os.popen('java -fullversion 2>&1').read())
+
+  if os.system('git clean -xfd >> %s.tmp 2>&1' % logFile):
+    raise RuntimeError('git clean -xfd failed!')
   
   t0 = time.time()
-  if not os.system('ant clean test -Dtests.jvms=%s >> %s.tmp 2>&1' % (constants.PROCESSOR_COUNT, logFile)):
+  # Goodbye ant, hello gradle!
+  #if not os.system('ant clean test -Dtests.jvms=%s >> %s.tmp 2>&1' % (constants.PROCESSOR_COUNT, logFile)):
+
+  # There is some weird gradle bootstrapping bug: if we do not run this "help" first, then the test run fails w/ cryptic error:
+  os.system('./gradlew help >> %s.tmp 2>&1' % logFile)
+  
+  if not os.system('./gradlew -p lucene test >> %s.tmp 2>&1' % logFile):
     # Success
     t1 = time.time()
     open(logFile + '.tmp', 'a').write('\nTOTAL SEC: %s' % (t1-t0))
@@ -44,6 +55,13 @@ def runOneDay(logFile):
     print('  took: %.1f min' % ((t1-t0)/60.0))
   else:
     print('FAILED; see %s.tmp' % logFile)
+
+def getTestCount(line, regexp):
+  m = regexp.search(line)
+  if m is not None:
+    return int(m.group(1))
+  else:
+    return -1
 
 def writeGraph():
   logFiles = os.listdir(LOGS_DIR)
@@ -64,9 +82,18 @@ def writeGraph():
     totalTests = 0
     with open('%s/%s' % (LOGS_DIR, logFile)) as f:
       for line in f.readlines():
-        m = reCompletedTestCount.search(line)
-        if m is not None:
-          totalTests += int(m.group(1))
+
+        testCount = getTestCount(line, reCompletedTestCountGradle)
+        if testCount <= 0:
+          testCount = getTestCount(line, reCompletedTestCountAnt)
+          if testCount < 0:
+            testCount = 0
+          elif 'Tests summary' in line:
+            # do not over-count ant "summary" output lines:
+            testCount = 0
+
+        totalTests += testCount
+        
         if line.startswith('TOTAL SEC: '):
           results.append((timestamp, totalTests, float(line[11:].strip())))
           break
@@ -80,7 +107,7 @@ def writeGraph():
     
     w('<html>')
     w('<head>')
-    w('<title>Minutes for "ant clean test" in lucene</title>')
+    w('<title>Minutes for "gradle -p lucene test" in lucene</title>')
     w('<style type="text/css">')
     w('BODY { font-family:verdana; }')
     w('#chart_ant_clean_test_time {\n')
@@ -120,7 +147,7 @@ def writeGraph():
       w('    + "%4d-%02d-%02d,%s,%s,%.2f\\n"\n' % (date.year, date.month, date.day, totalTests/1000.0, seconds/60.0, float(totalTests)/(seconds/60.0)/1000.))
 
     w(''',
-    { "title": "Time for \'ant clean test\'",
+    { "title": "Time for \'gradle -p lucene test\'",
       "labels": ["Date", "Count (thousands)", "Minutes", "Tests per minute (thousands)"],
       "series": {
         "Count (thousands)": {

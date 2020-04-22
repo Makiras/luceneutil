@@ -47,10 +47,12 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.LatLonDocValuesField;
 import org.apache.lucene.document.LatLonPoint;
+import org.apache.lucene.search.LatLonPointPrototypeQueries;
 //import org.apache.lucene.geo.EarthDebugger;
 import org.apache.lucene.geo.GeoUtils;
 import org.apache.lucene.geo.Polygon;
 import org.apache.lucene.geo.Rectangle;
+import org.apache.lucene.geo.Circle;
 import org.apache.lucene.index.CodecReader;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -78,6 +80,7 @@ import org.apache.lucene.search.SimpleCollector;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.TopFieldDocs;
 import org.apache.lucene.search.TotalHitCountCollector;
+import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.spatial3d.Geo3DPoint;
 import org.apache.lucene.spatial3d.geom.GeoCircleFactory;
 import org.apache.lucene.spatial3d.geom.GeoPoint;
@@ -91,6 +94,11 @@ import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.PrintStreamInfoStream;
 import org.apache.lucene.util.SloppyMath;
 import org.apache.lucene.util.bkd.BKDWriter;
+
+import org.apache.lucene.document.LatLonShape;
+import org.apache.lucene.document.ShapeField;
+import org.apache.lucene.document.Field;
+
 
 import static org.apache.lucene.geo.GeoEncodingUtils.decodeLatitude;
 import static org.apache.lucene.geo.GeoEncodingUtils.decodeLongitude;
@@ -142,7 +150,11 @@ public class IndexAndSearchOpenStreetMaps {
         break;
       case "jpountz":
         INDEX_LOCATION = "/data/lucene/bkdtest";
-        DATA_LOCATION = "/data/lucene/data";
+        DATA_LOCATION = "/home/jpountz/local/lucene/data";
+        break;
+      case "ivera":
+        INDEX_LOCATION = "/data/bkdtest";
+        DATA_LOCATION = "/data/";
         break;
       default:
         throw new UnsupportedOperationException("the benchmark does not know you, "+System.getProperty("user.name")+". please introduce yourself to the code and push");
@@ -150,6 +162,7 @@ public class IndexAndSearchOpenStreetMaps {
   }
 
   static boolean useGeo3D = false;
+  static boolean useShape = false;
   static boolean useGeo3DLarge = false;
   static boolean useLatLonPoint = false;
   static boolean useDocValues = false;
@@ -167,7 +180,9 @@ public class IndexAndSearchOpenStreetMaps {
       }
     } else if (useDocValues) {
       name += ".docvalues";
-    } else {
+    } else if (useShape) {
+      name += ".shape";
+    }  else {
       throw new AssertionError();
     }
     if (SMALL) {
@@ -478,7 +493,12 @@ public class IndexAndSearchOpenStreetMaps {
                       doc.add(new Geo3DPoint("point", lat, lon));
                     } else if (useDocValues) {
                       doc.add(new LatLonDocValuesField("point", lat, lon));
-                    } else {
+                    } else if (useShape) {
+                      Field[] fields = LatLonShape.createIndexableFields("point", lat, lon);
+                      for (Field f : fields) {
+                        doc.add(f);
+                      }
+                    }  else {
                       doc.add(new LatLonPoint("point", lat, lon));
                       if (doDistanceSort) {
                         doc.add(new LatLonDocValuesField("point", lat, lon));
@@ -508,7 +528,7 @@ public class IndexAndSearchOpenStreetMaps {
         thread.join();
       }
 
-      System.out.println("Part " + part + " is done: w.maxDoc()=" + w.maxDoc());
+      System.out.println("Part " + part + " is done: w.getDocStats().maxDoc =" + w.getDocStats().maxDoc);
       w.commit();
       System.out.println("done commit");
       long t1 = System.nanoTime();
@@ -535,7 +555,7 @@ public class IndexAndSearchOpenStreetMaps {
 
   private static Codec getCodec(boolean fast) {
     if (fast) {
-      return new FilterCodec("Lucene70", Codec.getDefault()) {
+      return new FilterCodec("Lucene84", Codec.getDefault()) {
         @Override
         public PointsFormat pointsFormat() {
           return new PointsFormat() {
@@ -553,7 +573,7 @@ public class IndexAndSearchOpenStreetMaps {
         }
       };
     } else {
-      return Codec.forName("Lucene70");
+      return Codec.forName("Lucene84");
     }
   }
 
@@ -711,9 +731,13 @@ public class IndexAndSearchOpenStreetMaps {
           if (useLatLonPoint) {
             q = LatLonPoint.newPolygonQuery("point", multiPolygon);
           } else if (useGeo3DLarge) {
-            q = Geo3DPoint.newLargePolygonQuery("point", multiPolygon);
+            q = Geo3DPoint.newLargePolygonQuery("point", PlanetModel.WGS84, multiPolygon);
           } else if (useGeo3D) {
-            q = Geo3DPoint.newPolygonQuery("point", multiPolygon);
+            q = Geo3DPoint.newPolygonQuery("point", PlanetModel.WGS84, multiPolygon);
+          } else if (useShape) {
+            q = LatLonShape.newPolygonQuery("point", ShapeField.QueryRelation.INTERSECTS, multiPolygon);
+          } else {
+            throw new AssertionError();
           }
           queries.add(q);
         }
@@ -738,8 +762,12 @@ public class IndexAndSearchOpenStreetMaps {
             Query q;
             if (useLatLonPoint) {
               q = LatLonPoint.newPolygonQuery("point", multiPolygon);
+            } else if (useShape) {
+              q = LatLonShape.newPolygonQuery("point", ShapeField.QueryRelation.INTERSECTS, multiPolygon);
+            } else if (useGeo3D || useGeo3DLarge) {
+              q = Geo3DPoint.newLargePolygonQuery("point", PlanetModel.WGS84, multiPolygon);
             } else {
-              q = Geo3DPoint.newLargePolygonQuery("point", multiPolygon);
+              throw new AssertionError();
             }
 
             for(IndexSearcher s : searchers) {
@@ -827,11 +855,14 @@ public class IndexAndSearchOpenStreetMaps {
                 switch(queryClass) {
                 case "distance":
                   if (useGeo3D || useGeo3DLarge) {
-                    q = Geo3DPoint.newDistanceQuery("point", centerLat, centerLon, distanceMeters);
+                    q = Geo3DPoint.newDistanceQuery("point", PlanetModel.WGS84, centerLat, centerLon, distanceMeters);
                   } else if (useLatLonPoint) {
                     q = LatLonPoint.newDistanceQuery("point", centerLat, centerLon, distanceMeters);
                   } else if (useDocValues) {
                     q = LatLonDocValuesField.newSlowDistanceQuery("point", centerLat, centerLon, distanceMeters);
+                  } else if (useShape) {
+                    Circle circle = new Circle(centerLat, centerLon, distanceMeters);
+                    q = LatLonShape.newDistanceQuery("point", ShapeField.QueryRelation.INTERSECTS, circle);
                   } else {
                     throw new AssertionError();
                   }
@@ -842,20 +873,24 @@ public class IndexAndSearchOpenStreetMaps {
                   //System.out.println("poly lons: " + Arrays.toString(poly[1]));
                   if (useGeo3DLarge) {
                     //System.out.println("POLY:\n  lats=" + Arrays.toString(poly[0]) + "\n  lons=" + Arrays.toString(poly[1]));
-                    q = Geo3DPoint.newLargePolygonQuery("point", new Polygon(poly[0], poly[1]));
+                    q = Geo3DPoint.newLargePolygonQuery("point", PlanetModel.WGS84, new Polygon(poly[0], poly[1]));
                   } else if (useGeo3D) {
-                    q = Geo3DPoint.newPolygonQuery("point", new Polygon(poly[0], poly[1]));
+                    q = Geo3DPoint.newPolygonQuery("point", PlanetModel.WGS84, new Polygon(poly[0], poly[1]));
                   } else if (useLatLonPoint) {
                     q = LatLonPoint.newPolygonQuery("point", new Polygon(poly[0], poly[1]));
+                  } else if (useShape) {
+                    q = LatLonShape.newPolygonQuery("point", ShapeField.QueryRelation.INTERSECTS, new Polygon(poly[0], poly[1]));
                   } else {
                     throw new AssertionError();
                   }
                   break;
                 case "box":
                   if (useGeo3D || useGeo3DLarge) {
-                    q = Geo3DPoint.newBoxQuery("point", lat, latEnd, lon, lonEnd);
+                    q = Geo3DPoint.newBoxQuery("point", PlanetModel.WGS84, lat, latEnd, lon, lonEnd);
                   } else if (useLatLonPoint) {
                     q = LatLonPoint.newBoxQuery("point", lat, latEnd, lon, lonEnd);
+                  } else if (useShape) {
+                    q = LatLonShape.newBoxQuery("point", ShapeField.QueryRelation.INTERSECTS, lat, latEnd, lon, lonEnd);
                   } else if (useDocValues) {
                     q = LatLonDocValuesField.newSlowBoxQuery("point", lat, latEnd, lon, lonEnd);
                   } else {
@@ -868,7 +903,7 @@ public class IndexAndSearchOpenStreetMaps {
                       // TODO
                       throw new AssertionError();
                     }
-                    nearestHits = LatLonPoint.nearest(searchers[0], "point", (lat+latEnd)/2.0, (lon+lonEnd)/2.0, nearestTopN).scoreDocs;
+                    nearestHits = LatLonPointPrototypeQueries.nearest(searchers[0], "point", (lat+latEnd)/2.0, (lon+lonEnd)/2.0, nearestTopN).scoreDocs;
                     if (false && iter == 0) {
                       System.out.println("\n" + nearestHits.length + " nearest:");
                       for(ScoreDoc hit : nearestHits) {
@@ -900,7 +935,12 @@ public class IndexAndSearchOpenStreetMaps {
                     Sort sort = new Sort(LatLonDocValuesField.newDistanceSort("point", centerLat, centerLon));
                     for(IndexSearcher s : searchers) {
                       TopFieldDocs hits = s.search(q, 10, sort);
-                      totHits += hits.totalHits;
+                      if (hits.totalHits.relation != TotalHits.Relation.EQUAL_TO) {
+                    	  // IndexSearcher can never optimize top-hits collection in that case,
+                    	  // se we should get accurate hit counts
+                    	  throw new AssertionError();
+                      }
+                      totHits += hits.totalHits.value;
                     }
                   } else {
                     //System.out.println("\nRUN QUERY " + q);
@@ -979,11 +1019,14 @@ public class IndexAndSearchOpenStreetMaps {
             switch(queryClass) {
             case "distance":
               if (useGeo3D || useGeo3DLarge) {
-                q = Geo3DPoint.newDistanceQuery("point", centerLat, centerLon, distanceMeters);
+                q = Geo3DPoint.newDistanceQuery("point", PlanetModel.WGS84, centerLat, centerLon, distanceMeters);
               } else if (useLatLonPoint) {
                 q = LatLonPoint.newDistanceQuery("point", centerLat, centerLon, distanceMeters);
               } else if (useDocValues) {
                 q = LatLonDocValuesField.newSlowDistanceQuery("point", centerLat, centerLon, distanceMeters);
+              } else if (useShape) {
+                Circle circle = new Circle(centerLat, centerLon, distanceMeters);
+                q = LatLonShape.newDistanceQuery("point", ShapeField.QueryRelation.INTERSECTS, circle);
               } else {
                 throw new AssertionError();
               }
@@ -993,25 +1036,29 @@ public class IndexAndSearchOpenStreetMaps {
               //System.out.println("poly lats: " + Arrays.toString(poly[0]));
               //System.out.println("poly lons: " + Arrays.toString(poly[1]));
               if (useGeo3DLarge) {
-                q = Geo3DPoint.newLargePolygonQuery("point", new Polygon(poly[0], poly[1]));
+                q = Geo3DPoint.newLargePolygonQuery("point", PlanetModel.WGS84, new Polygon(poly[0], poly[1]));
                 //GeoPoint point = new GeoPoint(PlanetModel.WGS84, Math.toRadians(centerLat), Math.toRadians(centerLon));
                 //System.out.println("WITHIN?: " + ((PointInGeo3DShapeQuery) q).getShape().isWithin(point));
                 //System.out.println(" --> QUERY: " + q);
               } else if (useGeo3D) {
-                q = Geo3DPoint.newPolygonQuery("point", new Polygon(poly[0], poly[1]));
+                q = Geo3DPoint.newPolygonQuery("point", PlanetModel.WGS84, new Polygon(poly[0], poly[1]));
               } else if (useLatLonPoint) {
                 q = LatLonPoint.newPolygonQuery("point", new Polygon(poly[0], poly[1]));
+              } else if (useShape) {
+                q = LatLonShape.newPolygonQuery("point", ShapeField.QueryRelation.INTERSECTS, new Polygon(poly[0], poly[1]));
               } else {
                 throw new AssertionError();
               }
               break;
             case "box":
               if (useGeo3D || useGeo3DLarge) {
-                q = Geo3DPoint.newBoxQuery("point", lat, latEnd, lon, lonEnd);
+                q = Geo3DPoint.newBoxQuery("point", PlanetModel.WGS84, lat, latEnd, lon, lonEnd);
               } else if (useLatLonPoint) {
                 q = LatLonPoint.newBoxQuery("point", lat, latEnd, lon, lonEnd);
               } else if (useDocValues) {
                 q = LatLonDocValuesField.newSlowBoxQuery("point", lat, latEnd, lon, lonEnd);
+              } else if (useShape) {
+                q = LatLonShape.newBoxQuery("point", ShapeField.QueryRelation.INTERSECTS, lat, latEnd, lon, lonEnd);
               } else {
                 throw new AssertionError();
               }
@@ -1136,6 +1183,9 @@ public class IndexAndSearchOpenStreetMaps {
       } else if (arg.equals("-geo3d")) {
         useGeo3D = true;
         count++;
+      } else if (arg.equals("-shapes")) {
+        useShape = true;
+        count++;
       } else if (arg.equals("-geo3dlarge")) {
         useGeo3DLarge = true;
         count++;
@@ -1221,15 +1271,17 @@ public class IndexAndSearchOpenStreetMaps {
       }
     }
     if (count == 0) {
-      throw new IllegalArgumentException("must specify exactly one of -points or -geo3d; got none");
+      throw new IllegalArgumentException("must specify exactly one of -points, -shapes, -dv, -geo3d or -geo3dlarge; got none");
     } else if (count > 1) {
-      throw new IllegalArgumentException("must specify exactly one of -points or -geo3d; got more than one");
+      throw new IllegalArgumentException("must specify exactly one of -points, -shapes, -dv, -geo3d or -geo3dlarge; got more than one");
     }
     NUM_PARTS = SMALL ? 1 : 2;
     if (useGeo3D) {
       System.out.println("\nUsing geo3d");
     } else if (useLatLonPoint) {
       System.out.println("\nUsing points");
+    } else if (useShape) {
+      System.out.println("\nUsing shapes");
     } else if (useDocValues) {
       System.out.println("\nUsing doc values");
     } else {

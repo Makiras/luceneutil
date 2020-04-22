@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.util.BytesRef;
 
 // Serves up tasks from locally loaded list:
@@ -41,7 +42,8 @@ class LocalTaskSource implements TaskSource {
   private final AtomicInteger nextTask = new AtomicInteger();
 
   public LocalTaskSource(IndexState indexState, TaskParser taskParser, String tasksFile,
-                         Random staticRandom, Random random, int numTaskPerCat, int taskRepeatCount, boolean doPKLookup) throws IOException, ParseException {
+                         Random staticRandom, Random random, int numTaskPerCat, int taskRepeatCount,
+                         boolean doPKLookup, boolean groupByCat) throws IOException, ParseException {
 
     final List<Task> loadedTasks = loadTasks(taskParser, tasksFile);
     Collections.shuffle(loadedTasks, staticRandom);
@@ -72,17 +74,35 @@ class LocalTaskSource implements TaskSource {
       }
       */
     }
+    tasks = new ArrayList<>();
+    if (groupByCat) {
+      repeatTasksGrouped(prunedTasks, taskRepeatCount, random);
+    } else {
+      repeatTasksShuffled(prunedTasks, taskRepeatCount, random);
+    }
+    System.out.println("TASK LEN=" + tasks.size());
+  }
 
-    tasks = new ArrayList<Task>();
-
+  private void repeatTasksShuffled(List<Task> someTasks, int taskRepeatCount, Random random) {
     // Copy the pruned tasks multiple times, shuffling the order each time:
-    for(int iter=0;iter<taskRepeatCount;iter++) {
-      Collections.shuffle(prunedTasks, random);
-      for(Task task : prunedTasks) {
+    for(int iter = 0; iter < taskRepeatCount; iter++) {
+      Collections.shuffle(someTasks, random);
+      for(Task task : someTasks) {
         tasks.add(task.clone());
       }
     }
-    System.out.println("TASK LEN=" + tasks.size());
+  }
+
+  private void repeatTasksGrouped(List<Task> someTasks, int taskRepeatCount, Random random) {
+    Map<String, List<Task>> tasksByCategory = new HashMap<>();
+    for (Task task : someTasks) {
+      String category = task.getCategory();
+      tasksByCategory.computeIfAbsent(category, c -> new ArrayList<>()).add(task);
+    }
+    for (String category : tasksByCategory.keySet()) {
+      List<Task> categoryTasks = tasksByCategory.get(category);
+      repeatTasksShuffled(categoryTasks, taskRepeatCount, random);
+    }
   }
 
   @Override
@@ -125,7 +145,7 @@ class LocalTaskSource implements TaskSource {
   }
 
   @Override
-  public void taskDone(Task task, long queueTimeNS, long processTimeNS, int toalHitCount) {
+  public void taskDone(Task task, long queueTimeNS, long processTimeNS, TotalHits toalHitCount) {
   }
 
   static List<Task> loadTasks(TaskParser taskParser, String filePath) throws IOException, ParseException {

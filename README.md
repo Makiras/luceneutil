@@ -34,7 +34,7 @@ A trunk version of Lucene can be checked out with
 
 ```
 cd $LUCENE_BENCH_HOME
-svn checkout https://svn.apache.org/repos/asf/lucene/dev/trunk lucene_baseline
+git clone https://github.com/apache/lucene-solr.git
 ```
 
 Adjust the command accordingly for `lucene_candidate`.
@@ -59,6 +59,15 @@ To run the benchmark you first test like this:
 cd $LUCENE_BENCH_HOME/util
 python src/python/localrun.py -source wikimedium10k
 ```
+
+If you get ClassNotFound exceptions, your Lucene checkouts may need to be rebuilt. Run `ant clean jar` in both `lucene_candidate/lucene` and `lucene_baseline/lucene` dirs.
+
+If your benchmark fails with "facetDim Date was not indexed" or similar, try adding
+
+    facets = (('taxonomy:Date', 'Date'),('sortedset:Month', 'Month'),('sortedset:DayOfYear', 'DayOfYear'))
+    index = comp.newIndex('lucene_baseline', sourceData, facets=facets, indexSort='dayOfYearNumericDV:long')
+
+in `localrun.py`, and use that index in your benchmarks.
 
 # Running the geo benchmark
 

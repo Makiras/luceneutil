@@ -29,9 +29,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-
+import org.apache.lucene.search.TotalHits;
 import perf.Affinity;
-
 // Serves up tasks from remote client
 class RemoteTaskSource extends Thread implements TaskSource {
   private final ServerSocket serverSocket;
@@ -167,14 +166,15 @@ class RemoteTaskSource extends Thread implements TaskSource {
   }
 
   @Override
-  public void taskDone(Task task, long queueTimeNS, long processTimeNS, int totalHitCount) throws IOException {
+  public void taskDone(Task task, long queueTimeNS, long processTimeNs, TotalHits totalHitCount) throws IOException {
     if (out != null) {
       try {
         // NOTE: can cause NPE here (we are not sync'd)
         // but caller will print & ignore it...
 	synchronized(out){
-	  out.write(String.format(Locale.ENGLISH, "%8d:%9d:%16d:%16d", task.taskID, totalHitCount, queueTimeNS, processTimeNS).getBytes("UTF-8"));
+	  out.write(String.format(Locale.ENGLISH, "%8d:%9d:%16d:%16d", task.taskID, totalHitCount.value, queueTimeNS, processTimeNS).getBytes("UTF-8"));
 	}
+//        out.write(String.format(Locale.ENGLISH, "%8d:%9d:%11.1f", task.taskID, totalHitCount.value + (totalHitCount.relation == TotalHits.Relation.GREATER_THAN_OR_EQUAL_TO ? "+" : ""), queueTimeNS/1000000.0).getBytes("UTF-8"));
       } catch (SocketException se) {
         System.out.println("Ignore SocketException: " + se);
         queue.clear();

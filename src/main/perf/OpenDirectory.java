@@ -24,8 +24,6 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NIOFSDirectory;
-import org.apache.lucene.store.RAMDirectory;
-import org.apache.lucene.store.SimpleFSDirectory;
 
 public abstract class OpenDirectory {
   public abstract Directory open(Path path) throws IOException;
@@ -45,23 +43,8 @@ public abstract class OpenDirectory {
             return new NIOFSDirectory(path);
           }
         };
-    } else if (dirImpl.equals("SimpleFSDirectory")) {
-      return new OpenDirectory() {
-          @Override
-          public Directory open(Path path) throws IOException {
-            return new SimpleFSDirectory(path);
-          }
-        };
     } else if (dirImpl.equals("RAMDirectory")) {
-      return new OpenDirectory() {
-          @Override
-          public Directory open(Path path) throws IOException {
-            final long t0 = System.currentTimeMillis();
-            Directory dir =new RAMDirectory(new SimpleFSDirectory(path), IOContext.READ);
-            System.out.println((System.currentTimeMillis() - t0) + " msec to load RAMDir; ramBytesUsed=" + ((RAMDirectory) dir).ramBytesUsed());
-            return dir;
-          }
-      };
+      throw new UnsupportedOperationException("RAMDirectory not supported anymore!");
     } else {
       throw new IllegalArgumentException("unknown directory impl \"" + dirImpl + "\"");
     }

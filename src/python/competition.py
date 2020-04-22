@@ -106,7 +106,8 @@ class Index(object):
                facetDVFormat = constants.FACET_FIELD_DV_FORMAT_DEFAULT,
                maxConcurrentMerges = 1,  # use 1 for spinning-magnets and 3 for fast SSD
                addDVFields = False,
-               name = None
+               name = None,
+               indexSort = None
                ):
     self.checkout = checkout
     self.dataSource = dataSource
@@ -144,6 +145,7 @@ class Index(object):
     self.facets = facets
     self.facetDVFormat = facetDVFormat
     self.assignedName = name
+    self.indexSort = indexSort
     
     self.mergeFactor = 10
     if SEGS_PER_LEVEL >= self.mergeFactor:
@@ -187,6 +189,9 @@ class Index(object):
 
     if self.addDVFields:
       name.append('dvfields')
+
+    if self.indexSort:
+      name.append('sort=%s' % self.indexSort)
       
     name.append('nd%gM' % (self.numDocs/1000000.0))
     return '.'.join(name)
@@ -207,6 +212,7 @@ class Competitor(object):
                hiliteImpl = 'FastVectorHighlighter',
                pk = True,
                loadStoredFields = False,
+               concurrentSearches = False,
                javacCommand = constants.JAVAC_EXE):
     self.name = name
     self.checkout = checkout
@@ -227,6 +233,7 @@ class Competitor(object):
     self.pk = pk
     self.loadStoredFields = loadStoredFields
     self.javacCommand = javacCommand
+    self.concurrentSearches = concurrentSearches
 
   def compile(self, cp):
     root = benchUtil.checkoutToUtilPath(self.checkout)
@@ -239,7 +246,7 @@ class Competitor(object):
 
     # Try to be faster than ant; this may miss changes, e.g. a static final constant changed in core that is used in another module:
     if common.getLatestModTime(perfSrc) <= common.getLatestModTime(buildDir, '.class'):
-      print('Skip compile: all .class are up to date')
+      print('Skip compiling luceneutil: all .class are up to date')
       return
 
     files = ['%s/perf/%s' % (perfSrc, x) for x in (

@@ -6,9 +6,9 @@
 # The ASF licenses this file to You under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
 # the License.  You may obtain a copy of the License at
-# 
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -416,6 +416,98 @@ KNOWN_CHANGES = [
   ('2018-01-31',
    'LUCENE-4198: Allow codecs to index term impacts',
    'LUCENE-4198: Allow codecs to index term impacts'),
+
+  ('2018-02-20',
+   'LUCENE-8153: CheckIndex spends less time checking impacts',
+   'LUCENE-8153: CheckIndex spends less time checking impacts'),
+
+  ('2018-05-02',
+   'LUCENE-8279: CheckIndex now cross-checks terms with norms',
+   'LUCENE-8279: CheckIndex now cross-checks terms with norms'),
+
+  ('2018-05-11',
+   'Primary key now indexed with the default codec instead of the specialized Memory postings format',
+   'Primary key now indexed with the default codec instead of the specialized Memory postings format'),
+
+  ('2018-05-25',
+   'LUCENE-8312: Leverage impacts for SynonymQuery (introduced regression for non-scoring term queries)',
+   'LUCENE-8312: Leverage impacts for SynonymQuery (introduced regression for non-scoring term queries)'),
+
+  ('2018-08-07',
+   'LUCENE-8312: Fixed regression with non-scoring term queries',
+   'LUCENE-8312: Fixed regression with non-scoring term queries'),
+
+  ('2018-08-07',
+   'LUCENE-8060: Stop counting total hits by default',
+   'LUCENE-8060: Stop counting total hits by default'),
+
+  ('2018-08-18',
+   'LUCENE-8448: Propagate min competitive score to sub clauses',
+   'LUCENE-8448: Propagate min competitive score to sub clauses'),
+
+  ('2018-11-19',
+   'LUCENE-8464: ConstantScoreScorer now implements setMinCompetitiveScore',
+   'LUCENE-8464: ConstantScoreScorer now implements setMinCompetitiveScore'),
+
+  ('2019-04-23',
+   'Switched to OpenJDK 11',
+   'Switched to OpenJDK 11'),
+
+  ('2019-04-30',
+   'Switched GC back to ParallelGC (away from default G1GC)',
+   'Switched GC back to ParallelGC (away from default G1GC)'),
+
+  ('2019-05-06',
+   'LUCENE-8781: FST lookup performance has been improved in many cases by encoding Arcs using full-sized arrays with gaps',
+   'LUCENE-8781: FST lookup performance has been improved in many cases by encoding Arcs using full-sized arrays with gaps'),
+
+  ('2019-05-24',
+   'LUCENE-8770: Two-phase support in conjunctions',
+   'LUCENE-8770: Two-phase support in conjunctions'),
+
+  ('2019-07-02',
+   'LUCENE-8901: Load freq blocks lazily',
+   'LUCENE-8901: Load freq blocks lazily'),
+
+  ('2019-07-09',
+   'LUCENE-8311: Compute impacts for phrase queries',
+   'LUCENE-8311: Compute impacts for phrase queries'),
+
+  ('2019-09-26',
+   'LUCENE-8980: Blocktree seekExact now checks min-max range of the segment',
+   'LUCENE-8980: Blocktree seekExact now checks min-max range of the segment'),
+
+  ('2019-10-14',
+   'LUCENE-8920: Disable direct addressing of arcs.',
+   'LUCENE-8920: Disable direct addressing of arcs.'),
+
+  ('2019-11-14',
+   'LUCENE-8920: Re-enable direct addressing of arcs.',
+   'LUCENE-8920: Re-enable direct addressing of arcs.'),
+
+  ('2019-11-19',
+   'LUCENE-9027: SIMD decompression of postings.',
+   'LUCENE-9027: SIMD decompression of postings.'),
+
+  ('2019-11-21',
+   'LUCENE-9056: Fewer conditionals in #nextDoc/#advance',
+   'LUCENE-9056: Fewer conditionals in #nextDoc/#advance'),
+
+  ('2020-01-13',
+   'Switch to OpenJDK 13',
+   'Switch to OpenJDK 13'),
+
+  ('2020-01-14',
+   'Switch to OpenJDK 12',
+   'Switch to OpenJDK 12'),
+
+  ('2020-01-17',
+   'Move invariant checks of CompetitiveImpactAccumulator under an assert',
+   'Move invariant checks of CompetitiveImpactAccumulator under an assert'),
+
+  ('2020-01-24',
+   'LUCENE-4702: compress suffix bytes in terms dictionary',
+   'LUCENE-4702: compress suffix bytes in terms dictionary'),
 ]
 
 # TODO
@@ -567,9 +659,9 @@ def runNRTTest(r, indexPath, runLogDir):
 
   min, max, mean, stdDev = stats.getStats(times)
   message('NRT reopen time (msec) mean=%.4f stdDev=%.4f' % (mean, stdDev))
-  
+
   checkIndex(r, indexPath, '%s/checkIndex.nrt.log' % runLogDir)
-  
+
   return mean, stdDev
 
 def run():
@@ -659,13 +751,14 @@ def run():
     print('Unable to read /sys/kernel/mm/transparent_hugepage/enabled')
   else:
     print('transparent_hugepages: %s' % s)
-  
+
   runCommand('%s clean > clean.log 2>&1' % constants.ANT_EXE)
 
   r = benchUtil.RunAlgs(constants.JAVA_COMMAND, True, True)
 
   comp = competition.Competition(taskRepeatCount=TASK_REPEAT_COUNT,
-                                 taskCountPerCat=COUNTS_PER_CAT)
+                                 taskCountPerCat=COUNTS_PER_CAT,
+                                 verifyCounts=False) # only verify top hits, not counts
 
   mediumSource = competition.Data('wikimedium',
                                   constants.NIGHTLY_MEDIUM_LINE_FILE,
@@ -674,10 +767,10 @@ def run():
 
   fastIndexMedium = comp.newIndex(NIGHTLY_DIR, mediumSource,
                                   analyzer='StandardAnalyzerNoStopWords',
-                                  postingsFormat='Lucene50',
+                                  postingsFormat='Lucene84',
                                   numThreads=constants.INDEX_NUM_THREADS,
                                   directory=DIR_IMPL,
-                                  idFieldPostingsFormat='Lucene50',
+                                  idFieldPostingsFormat='Lucene84',
                                   ramBufferMB=INDEXING_RAM_BUFFER_MB,
                                   waitForMerges=False,
                                   waitForCommit=False,
@@ -690,10 +783,10 @@ def run():
 
   nrtIndexMedium = comp.newIndex(NIGHTLY_DIR, mediumSource,
                                   analyzer='StandardAnalyzerNoStopWords',
-                                  postingsFormat='Lucene50',
+                                  postingsFormat='Lucene84',
                                   numThreads=constants.INDEX_NUM_THREADS,
                                   directory=DIR_IMPL,
-                                  idFieldPostingsFormat='Lucene50',
+                                  idFieldPostingsFormat='Lucene84',
                                   ramBufferMB=INDEXING_RAM_BUFFER_MB,
                                   waitForMerges=True,
                                   waitForCommit=True,
@@ -711,10 +804,10 @@ def run():
 
   fastIndexBig = comp.newIndex(NIGHTLY_DIR, bigSource,
                                analyzer='StandardAnalyzerNoStopWords',
-                               postingsFormat='Lucene50',
+                               postingsFormat='Lucene84',
                                numThreads=constants.INDEX_NUM_THREADS,
                                directory=DIR_IMPL,
-                               idFieldPostingsFormat='Lucene50',
+                               idFieldPostingsFormat='Lucene84',
                                ramBufferMB=INDEXING_RAM_BUFFER_MB,
                                waitForMerges=False,
                                waitForCommit=False,
@@ -728,10 +821,10 @@ def run():
   # Must use only 1 thread so we get same index structure, always:
   index = comp.newIndex(NIGHTLY_DIR, mediumSource,
                         analyzer='StandardAnalyzerNoStopWords',
-                        postingsFormat='Lucene50',
+                        postingsFormat='Lucene84',
                         numThreads=1,
                         directory=DIR_IMPL,
-                        idFieldPostingsFormat='Lucene50',
+                        idFieldPostingsFormat='Lucene84',
                         mergePolicy='LogDocMergePolicy',
                         facets = (('taxonomy:Date', 'Date'),
                                   ('taxonomy:Month', 'Month'),
@@ -745,7 +838,7 @@ def run():
                       index=index,
                       directory=DIR_IMPL,
                       commitPoint='multi')
-  
+
   #c = benchUtil.Competitor(id, 'trunk.nightly', index, DIR_IMPL, 'StandardAnalyzerNoStopWords', 'multi', constants.WIKI_MEDIUM_TASKS_FILE)
 
   if REAL:
@@ -793,7 +886,7 @@ def run():
   if REAL:
     resultsNow = []
     for iter in xrange(JVM_COUNT):
-      seed = rand.randint(-10000000, 1000000)      
+      seed = rand.randint(-10000000, 1000000)
       resultsNow.append(r.runSimpleSearchBench(iter, id, comp, coldRun, seed, staticSeed, filter=None))
   else:
     resultsNow = ['%s/%s/modules/benchmark/%s.%s.x.%d' % (constants.BASE_DIR, NIGHTLY_DIR, id, comp.name, iter) for iter in xrange(20)]
@@ -801,7 +894,7 @@ def run():
   resultsPrev = []
 
   searchResults = searchHeap = None
-  
+
   for fname in resultsNow:
     prevFName = fname + '.prev'
     if os.path.exists(prevFName):
@@ -889,12 +982,13 @@ def run():
 
   message('done: total time %s' % (now()-start))
 
-def getGCTimes(subDir):
+reTimeIn = re.compile('^\s*Time in (.*?): (\d+) ms')
+
+def getIndexGCTimes(subDir):
   if not os.path.exists('%s/gcTimes.pk' % subDir):
     times = {}
     print("check %s" % ('%s/logs.tar.bz2' % subDir))
     if os.path.exists('%s/logs.tar.bz2' % subDir):
-      reTimeIn = re.compile('^\s*Time in (.*?): (\d+) ms')
       cmd = 'tar xjf %s/logs.tar.bz2 fastIndexMediumDocs.log' % subDir
       if os.system(cmd):
         raise RuntimeError('%s failed (cwd %s)' % (cmd, os.getcwd()))
@@ -910,12 +1004,46 @@ def getGCTimes(subDir):
   else:
     return cPickle.loads(open('%s/gcTimes.pk' % subDir, 'rb').read())
 
+reSearchStdoutLog = re.compile(r'nightly\.nightly\.\d+\.stdout')
+
+def getSearchGCTimes(subDir):
+  times = {}
+  #print("check search gc/jit %s" % ('%s/logs.tar.bz2' % subDir))
+  pk_file = '%s/search.gcjit.pk' % subDir
+  if os.path.exists(pk_file):
+    return cPickle.load(open(pk_file))
+  
+  if os.path.exists('%s/logs.tar.bz2' % subDir):
+    with tarfile.open('%s/logs.tar.bz2' % subDir, 'r') as t:
+      for i in range(20):
+        try:
+          info = t.getmember('nightly.nightly.%d.stdout' % i)
+        except KeyError:
+          # we did not always save the .stdout w/ GC/JIT telemetry:
+          break
+        
+        f = t.extractfile(info)
+        try:
+          for line in f.readlines():
+            m = reTimeIn.search(line)
+            if m is not None:
+              print('  GOT MATCH: %s' % line.strip())
+              key = m.group(1)
+              times[key]= times.get(key, 0.0) + float(m.group(2))/1000.
+        finally:
+          f.close()
+
+    open(pk_file, 'wb').write(cPickle.dumps(times))
+    
+  return times
+
 def makeGraphs():
   global annotations
   medIndexChartData = ['Date,GB/hour']
   bigIndexChartData = ['Date,GB/hour']
   nrtChartData = ['Date,Reopen Time (msec)']
-  gcTimesChartData = ['Date,JIT (sec), Young GC (sec), Old GC (sec)']
+  gcIndexTimesChartData = ['Date,JIT (sec), Young GC (sec), Old GC (sec)']
+  gcSearchTimesChartData = ['Date,JIT (sec), Young GC (sec), Old GC (sec)']
   searchChartData = {}
   days = []
   annotations = []
@@ -931,7 +1059,7 @@ def makeGraphs():
 
       tup = cPickle.loads(open(resultsFile).read())
       # print 'RESULTS: %s' % resultsFile
-      
+
       timeStamp, \
                  medNumDocs, medIndexTimeSec, medBytesIndexed, \
                  bigNumDocs, bigIndexTimeSec, bigBytesIndexed, \
@@ -950,7 +1078,7 @@ def makeGraphs():
         searchHeaps = tup[11]
       else:
         searchHeaps = None
-        
+
       timeStampString = '%04d-%02d-%02d %02d:%02d:%02d' % \
                         (timeStamp.year,
                          timeStamp.month,
@@ -966,14 +1094,23 @@ def makeGraphs():
         # Bug in luceneutil made it look like 0 qps on all queries
         continue
 
-      gcTimes = getGCTimes('%s/%s' % (constants.NIGHTLY_LOG_DIR, subDir))
+      gcIndexTimes = getIndexGCTimes('%s/%s' % (constants.NIGHTLY_LOG_DIR, subDir))
       s = timeStampString
       for h in 'JIT compilation', 'Young Generation GC', 'Old Generation GC':
-        v = gcTimes.get(h)
+        v = gcIndexTimes.get(h)
         s += ','
         if v is not None:
           s += '%.4f' % v
-      gcTimesChartData.append(s)
+      gcIndexTimesChartData.append(s)
+
+      gcSearchTimes = getSearchGCTimes('%s/%s' % (constants.NIGHTLY_LOG_DIR, subDir))
+      s = timeStampString
+      for h in 'JIT compilation', 'Young Generation GC', 'Old Generation GC':
+        v = gcIndexTimes.get(h)
+        s += ','
+        if v is not None:
+          s += '%.4f' % v
+      gcSearchTimesChartData.append(s)
 
       medIndexChartData.append('%s,%.1f' % (timeStampString, (medBytesIndexed / (1024*1024*1024.))/(medIndexTimeSec/3600.)))
       bigIndexChartData.append('%s,%.1f' % (timeStampString, (bigBytesIndexed / (1024*1024*1024.))/(bigIndexTimeSec/3600.)))
@@ -1031,7 +1168,7 @@ def makeGraphs():
     sort(v)
 
   # Index time, including GC/JIT times
-  writeIndexingHTML(medIndexChartData, bigIndexChartData, gcTimesChartData)
+  writeIndexingHTML(medIndexChartData, bigIndexChartData, gcIndexTimesChartData)
 
   # CheckIndex time
   writeCheckIndexTimeHTML()
@@ -1050,6 +1187,8 @@ def makeGraphs():
       del searchChartData[k]
 
   writeIndexHTML(searchChartData, days)
+
+  writeSearchGCJITHTML(gcSearchTimesChartData)
 
   # publish
   #runCommand('rsync -rv -e ssh %s/reports.nightly mike@10.17.4.9:/usr/local/apache2/htdocs' % constants.BASE_DIR)
@@ -1083,7 +1222,7 @@ def writeCheckIndexTimeHTML():
     if os.path.exists('%s/%s/results.debug.pk' % (constants.NIGHTLY_LOG_DIR, subDir)):
       # Skip debug runs
       continue
-    
+
     tup = subDir.split('.')
     if len(tup) != 6:
       #print('skip %s' % subDir)
@@ -1092,7 +1231,7 @@ def writeCheckIndexTimeHTML():
     if tup[:3] == ['2015', '04', '04']:
       # Hide disastrously slow CheckIndex time after auto-prefix first landed
       continue
-    
+
     if os.path.exists(checkIndexTimeFile):
       # Already previously computed & cached:
       seconds = int(open(checkIndexTimeFile, 'r').read())
@@ -1123,7 +1262,7 @@ def writeCheckIndexTimeHTML():
     #print("tup %s" % tup)
     chartData.append('%s-%s-%s %s:%s:%s,%s' % (tuple(tup) + (seconds,)))
     #print("added %s" % chartData[-1])
-                
+
   with open('%s/checkIndexTime.html' % constants.NIGHTLY_REPORTS_DIR, 'wb') as f:
     w = f.write
     header(w, 'Lucene nightly CheckIndex time')
@@ -1147,7 +1286,7 @@ def writeCheckIndexTimeHTML():
     w('</ul>')
     w('<br><a href="index.html">Back to all results</a><br>')
     footer(w)
-    
+
 def header(w, title):
   w('<html>')
   w('<head>')
@@ -1158,7 +1297,7 @@ def header(w, title):
   w('<script type="text/javascript" src="dygraph-combined-dev.js"></script>\n')
   w('</head>')
   w('<body>')
-  
+
 def footer(w):
   w('<br><em>[last updated: %s; send questions to <a href="mailto:lucene@mikemccandless.com">Mike McCandless</a>]</em>' % now())
   w('</div>')
@@ -1168,7 +1307,7 @@ def footer(w):
 def writeOneLine(w, seen, cat, desc):
   seen.add(cat)
   w('<br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="%s.html">%s</a>' % (cat, desc))
-  
+
 def writeIndexHTML(searchChartData, days):
   f = open('%s/index.html' % constants.NIGHTLY_REPORTS_DIR, 'wb')
   w = f.write
@@ -1197,6 +1336,7 @@ def writeIndexHTML(searchChartData, days):
   writeOneLine(w, done, 'Phrase', 'Exact phrase')
   writeOneLine(w, done, 'SloppyPhrase', 'Sloppy (~4) phrase')
   writeOneLine(w, done, 'SpanNear', 'Span near (~10)')
+  writeOneLine(w, done, 'IntervalsOrdered', 'Ordered intervals (MAXWIDTH/10)')
 
   w('<br><br><b>FuzzyQuery:</b>')
   writeOneLine(w, done, 'Fuzzy1', 'Edit distance 1')
@@ -1206,10 +1346,10 @@ def writeIndexHTML(searchChartData, days):
   writeOneLine(w, done, 'Term', 'TermQuery')
   writeOneLine(w, done, 'Respell', 'Respell (DirectSpellChecker)')
   writeOneLine(w, done, 'PKLookup', 'Primary key lookup')
-  writeOneLine(w, done, 'Wildcard', 'WildcardQuery')  
-  writeOneLine(w, done, 'Prefix3', 'PrefixQuery (3 leading characters)')  
-  writeOneLine(w, done, 'IntNRQ', 'Numeric range filtering on last-modified-datetime')  
-  
+  writeOneLine(w, done, 'Wildcard', 'WildcardQuery')
+  writeOneLine(w, done, 'Prefix3', 'PrefixQuery (3 leading characters)')
+  writeOneLine(w, done, 'IntNRQ', 'Numeric range filtering on last-modified-datetime')
+
   w('<br><br><b>Faceting:</b>')
   writeOneLine(w, done, 'TermDateFacets', 'Term query + date hierarchy')
   writeOneLine(w, done, 'BrowseDateTaxoFacets', 'All dates hierarchy')
@@ -1232,11 +1372,12 @@ def writeIndexHTML(searchChartData, days):
   writeOneLine(w, done, 'TermBGroup1M1P', '1M groups (single pass block grouping)')
 
   w('<br><br><b>Others:</b>')
+  w('<br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="search_gc_jit.html">GC/JIT metrics during search benchmarks</a>')
   w('<br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="../geobench.html">Geo spatial benchmarks</a>')
   w('<br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="sparseResults.html">Sparse vs dense doc values performance on NYC taxi ride corpus</a>')
-  w('<br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="antcleantest.html">"ant clean test" time in lucene</a>')
+  w('<br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="antcleantest.html">"gradle -p lucene test" time in lucene</a>')
   w('<br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="checkIndexTime.html">CheckIndex time</a>')
-  
+
   l = searchChartData.keys()
   lx = []
   for s in l:
@@ -1276,6 +1417,7 @@ taskRename = {
   'Phrase': 'PhraseQuery (exact)',
   'SloppyPhrase': 'PhraseQuery (sloppy)',
   'SpanNear': 'SpanNearQuery',
+  'IntervalsOrdered': 'IntervalsQuery (ordered)',
   'AndHighHigh': 'BooleanQuery (AND, high freq, high freq term)',
   'AndHighMed': 'BooleanQuery (AND, high freq, medium freq term)',
   'OrHighHigh': 'BooleanQuery (OR, high freq, high freq term)',
@@ -1335,6 +1477,17 @@ def writeKnownChanges(w, pctOffset=77):
     label += 1
   w('</ul>')
 
+def writeSearchGCJITHTML(gcTimesChartData):
+  with open('%s/search_gc_jit.html' % constants.NIGHTLY_REPORTS_DIR, 'wb') as f:
+    w = f.write
+    header(w, 'Lucene search GC/JIT times')
+    w('<br>Click and drag to zoom; shift + click and drag to scroll after zooming; hover over an annotation to see details<br>')
+    w('<br>')
+    w(getOneGraphHTML('GCTimes', gcTimesChartData, "Seconds", "JIT/GC times during searching", errorBars=False))
+    w('\n')
+    writeKnownChanges(w, pctOffset=227)
+    footer(w)
+
 def writeIndexingHTML(medChartData, bigChartData, gcTimesChartData):
   f = open('%s/indexing.html' % constants.NIGHTLY_REPORTS_DIR, 'wb')
   w = f.write
@@ -1363,7 +1516,7 @@ def writeIndexingHTML(medChartData, bigChartData, gcTimesChartData):
   w('  <li> Test does <b>not wait for merges on close</b> (calls <tt>IW.close(false)</tt>)')
   w('  <li> Analyzer is <tt>StandardAnalyzer</tt>, but we <b>index all stop words</b>')
   w('  <li> Test indexes full <a href="http://en.wikipedia.org/wiki/Wikipedia:Database_download">Wikipedia English XML export</a> (1/15/2011), from a pre-created line file (one document per line), on a different drive from the one that stores the index')
-  w('  <li> %d indexing threads\n' % constants.INDEX_NUM_THREADS)  
+  w('  <li> %d indexing threads\n' % constants.INDEX_NUM_THREADS)
   w('  <li> %s MB RAM buffer\n' % INDEXING_RAM_BUFFER_MB)
   w('  <li> Java command-line: <tt>%s</tt>\n' % constants.JAVA_COMMAND)
   w('  <li> Java version: <tt>%s</tt>\n' % htmlEscape(os.popen('java -version 2>&1').read().strip()))
@@ -1384,7 +1537,7 @@ def writeNRTHTML(nrtChartData):
   w('<br>')
   w(getOneGraphHTML('NRT', nrtChartData, "Milliseconds", "Time (msec) to open a new reader", errorBars=True))
   writeKnownChanges(w)
-  
+
   w('<b>Notes</b>:\n')
   w('<ul>\n')
   w('  <li> Test starts from full Wikipedia index, then use <tt>IW.updateDocument</tt> (so we stress deletions)')
@@ -1467,7 +1620,7 @@ def getOneGraphHTML(id, data, yLabel, title, errorBars=True, pctOffset=5):
       maxY = max([float(x.split(',')[1]) for x in data[1:]])
     options.append('valueRange:[0,%.3f]' % (maxY*1.25))
   #options.append('includeZero: true')
-                 
+
   if errorBars:
     options.append('errorBars: true')
     options.append('sigma: 1')
@@ -1475,7 +1628,7 @@ def getOneGraphHTML(id, data, yLabel, title, errorBars=True, pctOffset=5):
   options.append('showRoller: false')
 
   w('    {%s}' % ', '.join(options))
-    
+
   if 0:
     if errorBars:
       w('    {errorBars: true, valueRange:[0,%.3f], sigma:1, title:"%s", ylabel:"%s", xlabel:"Date"}' % (maxY*1.25, title, yLabel))
@@ -1563,7 +1716,7 @@ if __name__ == '__main__':
     if not DEBUG and REAL:
       import socket
       sendEmail('mail@mikemccandless.com', 'Nightly Lucene bench FAILED (%s)' % socket.gethostname(), '')
-    
+
 # scp -rp /lucene/reports.nightly mike@10.17.4.9:/usr/local/apache2/htdocs
 
 # TO CLEAN
@@ -1571,4 +1724,3 @@ if __name__ == '__main__':
 #   - rm -rf /lucene/logs.nightly/*
 #   - rm -rf /lucene/reports.nightly/*
 #   - rm -f /lucene/trunk.nightly/modules/benchmark/*.x
-

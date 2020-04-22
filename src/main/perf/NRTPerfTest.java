@@ -22,14 +22,10 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -41,7 +37,7 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.DocValuesFormat;
 import org.apache.lucene.codecs.PostingsFormat;
-import org.apache.lucene.codecs.lucene70.Lucene70Codec;
+import org.apache.lucene.codecs.lucene84.Lucene84Codec;
 import org.apache.lucene.index.ConcurrentMergeScheduler;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
@@ -54,13 +50,12 @@ import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.spell.DirectSpellChecker;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.apache.lucene.store.NRTCachingDirectory;
-import org.apache.lucene.store.SimpleFSDirectory;
-import org.apache.lucene.util.Version;
 
 import perf.IndexThreads.Mode;
 
@@ -211,7 +206,7 @@ public class NRTPerfTest {
 		}
 
 		@Override
-		public void taskDone(Task task, long queueTimeNS, long processTimeNS, int toalHitCount) {}
+		public void taskDone(Task task, long queueTimeNS, long processTimeNS, TotalHits toalHitCount) {}
 	}
 
 	static final AtomicInteger currentQT = new AtomicInteger();
@@ -285,8 +280,6 @@ public class NRTPerfTest {
 			dir0 = new MMapDirectory(Paths.get(dirPath));
 		} else if (dirImpl.equals("NIOFSDirectory")) {
 			dir0 = new NIOFSDirectory(Paths.get(dirPath));
-		} else if (dirImpl.equals("SimpleFSDirectory")) {
-			dir0 = new SimpleFSDirectory(Paths.get(dirPath));
 		} else {
 			docs.close();
 			throw new RuntimeException("unknown directory impl \"" + dirImpl + "\"");
@@ -308,13 +301,14 @@ public class NRTPerfTest {
 		conf.setRAMBufferSizeMB(256.0);
 		//iwc.setMergeScheduler(ms);
 
-		final Codec codec = new Lucene70Codec() {
+                /*
+		final Codec codec = new Lucene84Codec() {
 			@Override
 			public PostingsFormat getPostingsFormatForField(String field) {
                           return PostingsFormat.forName("Lucene50");
 			}
 
-			private final DocValuesFormat direct = DocValuesFormat.forName("Direct");
+                        private final DocValuesFormat direct = DocValuesFormat.forName("Direct");
 			@Override
 			public DocValuesFormat getDocValuesFormatForField(String field) {
 				return direct;
@@ -322,6 +316,7 @@ public class NRTPerfTest {
 		};
 
 		conf.setCodec(codec);
+                */
 
 		/*
     iwc.setMergePolicy(new LogByteSizeMergePolicy());
@@ -364,8 +359,9 @@ public class NRTPerfTest {
 				docsIndexedByTime[idx].incrementAndGet();
 			}
 		};
+        IndexWriter.DocStats stats = w.getDocStats();
 		IndexThreads indexThreads = new IndexThreads(random, w, new AtomicBoolean(false), docs, numIndexThreads, -1, false, false, mode,
-                                                             (float) (docsPerSec / numIndexThreads), updatesListener, -1.0, w.maxDoc());
+                                                             (float) (docsPerSec / numIndexThreads), updatesListener, -1.0, stats.maxDoc);
 
 		// NativePosixUtil.mlockTermsDict(startR, "id");
 		final SearcherManager manager = new SearcherManager(w, null);
@@ -382,7 +378,7 @@ public class NRTPerfTest {
 		TaskParser taskParser = new TaskParser(indexState, qp, field, 10, random, true);
 		final TaskSource tasks = new RandomTaskSource(taskParser, tasksFile, random) {
 			@Override
-			public void taskDone(Task task, long queueTimeNS, long processTimeNS, int toalHitCount) {
+			public void taskDone(Task task, long queueTimeNS, long processTimeNS, TotalHits toalHitCount) {
 				searchesByTime[currentQT.get()].incrementAndGet();
 			}
 		};

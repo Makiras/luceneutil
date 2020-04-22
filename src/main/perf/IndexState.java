@@ -148,10 +148,10 @@ class IndexState {
 
     @Override
     public Relation compare(byte[] minPackedValue, byte[] maxPackedValue) {
-      if (StringHelper.compare(Integer.BYTES, targetValue, 0, minPackedValue, 0) < 0) {
+      if (Arrays.compareUnsigned(targetValue, 0, Integer.BYTES, minPackedValue, 0, Integer.BYTES) < 0) {
         return Relation.CELL_OUTSIDE_QUERY;
       }
-      if (StringHelper.compare(Integer.BYTES, targetValue, 0, maxPackedValue, 0) > 0) {
+      if (Arrays.compareUnsigned(targetValue, 0, Integer.BYTES, maxPackedValue, 0, Integer.BYTES) > 0) {
         return Relation.CELL_OUTSIDE_QUERY;
       }
       return Relation.CELL_CROSSES_QUERY;
