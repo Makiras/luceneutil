@@ -76,6 +76,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.Version;
 
 import perf.IndexThreads.Mode;
+import perf.Affinity;
 
 // TODO
 //   - post queries on pao
@@ -113,13 +114,13 @@ public class SearchPerfTest {
     protected boolean tryIncRef(IndexSearcher ref) {
       return ref.getIndexReader().tryIncRef();
     }
-    
+
     @Override
     protected int getRefCount(IndexSearcher ref) {
     	return ref.getIndexReader().getRefCount();
     }
   }
-  
+
   public static void main(String[] clArgs) throws Exception {
 
     StatisticsHelper stats = new StatisticsHelper();
@@ -142,6 +143,8 @@ public class SearchPerfTest {
     final String dirImpl = args.getString("-dirImpl");
 
     OpenDirectory od = OpenDirectory.get(dirImpl);
+    Affinity.initPerf();
+    Affinity.initSignal();
 
     /*
     } else if (dirImpl.equals("NativePosixMMapDirectory")) {
@@ -161,7 +164,7 @@ public class SearchPerfTest {
       postingsExtensions.add("prx");
       postingsExtensions.add("tip");
       postingsExtensions.add("tim");
-      
+
       ramDir =  new RAMDirectory();
       Directory fsDir = new MMapDirectory(new File(dirPath));
       for (String file : fsDir.listAll()) {
@@ -211,7 +214,7 @@ public class SearchPerfTest {
     // TODO: this could be way better.
     final String similarity = args.getString("-similarity");
     // now reflect
-    final Class<? extends Similarity> simClazz = 
+    final Class<? extends Similarity> simClazz =
       Class.forName("org.apache.lucene.search.similarities." + similarity).asSubclass(Similarity.class);
     final Similarity sim = simClazz.newInstance();
 
@@ -222,7 +225,7 @@ public class SearchPerfTest {
     System.out.println("topN " + topN);
     System.out.println("JVM " + (Constants.JRE_IS_64BIT ? "is" : "is not") + " 64bit");
     System.out.println("Pointer is " + RamUsageEstimator.NUM_BYTES_OBJECT_REF + " bytes");
- 
+
     final Analyzer a;
     if (analyzer.equals("EnglishAnalyzer")) {
       a = new EnglishAnalyzer();
@@ -237,7 +240,7 @@ public class SearchPerfTest {
                                      2, 2, ShingleFilter.DEFAULT_TOKEN_SEPARATOR, true, true, ShingleFilter.DEFAULT_FILLER_TOKEN);
     } else {
       throw new RuntimeException("unknown analyzer " + analyzer);
-    } 
+    }
 
     final ReferenceManager<IndexSearcher> mgr;
     final IndexWriter writer;
@@ -278,7 +281,7 @@ public class SearchPerfTest {
       if (verbose) {
         InfoStream.setDefault(new PrintStreamInfoStream(System.out));
       }
-      
+
       if (!dirImpl.equals("RAMDirectory") && !dirImpl.equals("RAMExceptDirectPostingsDirectory")) {
         System.out.println("Wrap NRTCachingDirectory");
         dir0 = new NRTCachingDirectory(dir0, 20, 400.0);
@@ -297,7 +300,7 @@ public class SearchPerfTest {
         // Let IW remove files only referenced by starting commit:
         iwc.setIndexDeletionPolicy(new KeepNoCommitsDeletionPolicy());
       }
-      
+
       if (commit != null && commit.length() > 0) {
         System.out.println("Opening writer on commit=" + commit);
         iwc.setIndexCommit(PerfUtils.findCommitPoint(commit, dir));
@@ -334,7 +337,7 @@ public class SearchPerfTest {
             System.out.println("warm segment=" + reader + " numDocs=" + reader.numDocs() + ": took " + (t1-t0) + " msec");
           }
         });
-      
+
       writer = new IndexWriter(dir, iwc);
       System.out.println("Initial writer.maxDoc()=" + writer.maxDoc());
 
@@ -420,7 +423,7 @@ public class SearchPerfTest {
       s.setQueryCache(null); // don't bench the cache
       s.setSimilarity(sim);
       System.out.println("maxDoc=" + reader.maxDoc() + " numDocs=" + reader.numDocs() + " %tg deletes=" + (100.*reader.maxDoc()/reader.numDocs()));
-      
+
       mgr = new SingleIndexSearcher(s);
     }
 
@@ -506,7 +509,7 @@ public class SearchPerfTest {
     TaskParser taskParser = new TaskParser(indexState, queryParser, fieldName, topN, staticRandom, doStoredLoads);
 
     final TaskSource tasks;
-
+    final int cpuAffinity = args.getInt("-cpuAffinity");
     if (tasksFile.startsWith("server:")) {
       int idx = tasksFile.indexOf(':', 8);
       if (idx == -1) {
@@ -514,7 +517,12 @@ public class SearchPerfTest {
       }
       String iface = tasksFile.substring(7, idx);
       int port = Integer.valueOf(tasksFile.substring(1+idx));
-      RemoteTaskSource remoteTasks = new RemoteTaskSource(iface, port, searchThreadCount, taskParser);
+      boolean socket_option = false;
+      if (args.hasArg("-nodelay"))
+      {
+	  socket_option = true;
+      }
+      RemoteTaskSource remoteTasks = new RemoteTaskSource(iface, port, searchThreadCount, taskParser, cpuAffinity, socket_option);
 
       // nocommit must stop thread?
       tasks = remoteTasks;
@@ -528,12 +536,13 @@ public class SearchPerfTest {
       System.out.println("Num task per cat " + numTaskPerCat);
     }
 
-    args.check();
+    //    args.check();
 
     // Evil respeller:
     //spellChecker.setMinPrefix(0);
     //spellChecker.setMaxInspections(1024);
-    final TaskThreads taskThreads = new TaskThreads(tasks, indexState, searchThreadCount);
+    // pin working threads start from `cpuAffinity`
+    final TaskThreads taskThreads = new TaskThreads(tasks, indexState, searchThreadCount, cpuAffinity);
     Thread.sleep(10);
 
     final long startNanos = System.nanoTime();
