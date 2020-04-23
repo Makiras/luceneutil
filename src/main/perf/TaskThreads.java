@@ -130,7 +130,7 @@ public class TaskThreads {
 					try {
 					  //					  tasks.taskDone(task, t0-task.recvTimeNS, t1-t0, task.totalHitCount);
 					  RemoteTaskSource rs = (RemoteTaskSource) tasks;
-					  rs.taskReport(task, task.totalHitCount, task.recvTimeNS, t0, t1, eventEndVals[0]-eventBeginVals[0], eventEndVals[1]-eventBeginVals[1]);
+					  rs.taskReport(task, task.totalHitCount.value, task.recvTimeNS, t0, t1, eventEndVals[0]-eventBeginVals[0], eventEndVals[1]-eventBeginVals[1]);
 					  //System.out.println("ptime: " + (t0-task.recvTimeNS)/1000 + "ltime: " +  (t1-task.recvTimeNS)/1000);
 					} catch (Exception e) {
 					  System.out.println(Thread.currentThread().getName() + ": ignoring exc:");

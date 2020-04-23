@@ -166,7 +166,7 @@ class RemoteTaskSource extends Thread implements TaskSource {
   }
 
   @Override
-  public void taskDone(Task task, long queueTimeNS, long processTimeNs, TotalHits totalHitCount) throws IOException {
+  public void taskDone(Task task, long queueTimeNS, long processTimeNS, TotalHits totalHitCount) throws IOException {
     if (out != null) {
       try {
         // NOTE: can cause NPE here (we are not sync'd)
@@ -184,7 +184,7 @@ class RemoteTaskSource extends Thread implements TaskSource {
     }
   }
 
-  public void taskReport(Task task, int totalHitCount, long receiveTime, long processTime, long finishTime, long ins, long cycles) throws IOException {
+  public void taskReport(Task task, long totalHitCount, long receiveTime, long processTime, long finishTime, long ins, long cycles) throws IOException {
     if (out != null) {
       try {
         // NOTE: can cause NPE here (we are not sync'd)
