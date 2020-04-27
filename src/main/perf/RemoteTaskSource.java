@@ -38,7 +38,7 @@ class RemoteTaskSource extends Thread implements TaskSource {
   private final int numThreads;
   private final int cpuAffinityBase;
   private static final int MAX_BYTES = 40;
-    private final boolean nodelay_sock;
+  private final boolean nodelay_sock;
 
   // nocommit maybe fair=true?
   private final BlockingQueue<Task> queue = new ArrayBlockingQueue<Task>(100000);
