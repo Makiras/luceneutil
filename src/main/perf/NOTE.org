@@ -1,3 +1,15 @@
+* Parameters
+  cpuAffinity -1 no affinity
+  cpuAffinity >=0 [cpuAffinity, +1,... +nworker]
+
 * Request and Response format
+One request example:
+  HighTerm: been # freq=130453
+
+
+RemoteTaskSource:
+  Read 40 bytes from the TCP in stream, try to parse a task
+
 
 * Threading Model
+  ip:port --(RemoteTask)--> ArrayBlockingQueue --(N Working Tasks)--->ip:port

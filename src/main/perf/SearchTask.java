@@ -250,15 +250,21 @@ final class SearchTask extends Task {
           getFacetResultsMsec = (System.nanoTime() - t0)/1000000.0;
         }
       } else if (s == null) {
+	    long t0 = System.nanoTime();
         hits = searcher.search(q, topN);
         if (doHilite) {
           hilite(hits, state, searcher, q);
         }
+	long t1 = System.nanoTime();
+	double t = (t1  - t0)/1000000.0;
+	//System.out.println("Q:" + q  + "hits:" + hits.totalHits + " time:" + t);
       } else {
+	
         hits = searcher.search(q, topN, s);
         if (doHilite) {
           hilite(hits, state, searcher, q);
         }
+
         /*
           final boolean fillFields = true;
           final boolean fieldSortDoTrackScores = true;
@@ -272,7 +278,7 @@ final class SearchTask extends Task {
           hits = c.topDocs();
         */
       }
-      if (hits != null) {
+      if (hits != null) {	
         totalHitCount = hits.totalHits;
 
         if (doStoredLoads) {

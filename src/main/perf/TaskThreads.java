@@ -87,9 +87,9 @@ public class TaskThreads {
 			  System.out.println("TaskThread " + threadID + " set to CPU " + threadID);
 			  Affinity.setCPUAffinity(threadID + cpuAffinity);
 		      }
-//		  String[] eventNames = {"INSTRUCTION_RETIRED:k","UNHALTED_CORE_CYCLES:k"};
+		  String[] eventNames = {"INSTRUCTION_RETIRED","UNHALTED_CORE_CYCLES"};
 //		  String[] eventNames = {"INSTRUCTION_RETIRED:k","ICACHE:IFDATA_STALL:k"};
-		  String[] eventNames = {"UNHALTED_CORE_CYCLES:k","RESOURCE_STALLS:SB:k"};
+//		  String[] eventNames = {"UNHALTED_CORE_CYCLES:k","RESOURCE_STALLS:SB:k"};
 //		  String[] eventNames = {"RESOURCE_STALLS:SB:k","DTLB_STORE_MISSES:WALK_DURATION:k"};
 //		  String[] eventNames = {"LLC_REFERENCES","INSTRUCTION_RETIRED"};
 		  //String[] eventNames = {"INSTRUCTION_RETIRED","INSTRUCTION_RETIRED:k"};
@@ -128,7 +128,8 @@ public class TaskThreads {
 					final long t1 = System.nanoTime();
 					Affinity.readEvents(eventEndVals);
 					try {
-					  //					  tasks.taskDone(task, t0-task.recvTimeNS, t1-t0, task.totalHitCount);
+						// this change is for letting the NPRWorker works
+					  	//				  tasks.taskDone(task, t0-task.recvTimeNS, t1-t0, task.totalHitCount);
 					  RemoteTaskSource rs = (RemoteTaskSource) tasks;
 					  rs.taskReport(task, task.totalHitCount.value, task.recvTimeNS, t0, t1, eventEndVals[0]-eventBeginVals[0], eventEndVals[1]-eventBeginVals[1]);
 					  //System.out.println("ptime: " + (t0-task.recvTimeNS)/1000 + "ltime: " +  (t1-task.recvTimeNS)/1000);

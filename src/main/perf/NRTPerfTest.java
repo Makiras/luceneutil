@@ -58,6 +58,7 @@ import org.apache.lucene.store.NIOFSDirectory;
 import org.apache.lucene.store.NRTCachingDirectory;
 
 import perf.IndexThreads.Mode;
+import perf.Affinity;
 
 // cd /a/lucene/trunk/checkout
 // ln -s /path/to/lucene/util/perf .
@@ -269,6 +270,9 @@ public class NRTPerfTest {
 			totalUpdateTimeByTime[i] = new AtomicLong();
 			reopensByTime[i] = new AtomicInteger();
 		}
+
+		Affinity.initPerf();
+		Affinity.initSignal();
 
 		System.out.println("Max merge MB/sec = " + (mergeMaxWriteMBPerSec <= 0.0 ? "unlimited" : mergeMaxWriteMBPerSec));
 		final Random random = new Random(seed);
