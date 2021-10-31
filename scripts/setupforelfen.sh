@@ -1,13 +1,13 @@
 #!/bin/bash
 
-LUCENE_BUILD="/home/yangxi/code/elfen/lucene/trunk/lucene/build"
-TARGET_DIR="/home/yangxi/code/elfen/lucene/util/build"
-LUCENE_UTIL="/home/yangxi/code/elfen/lucene/util"
-#INDEX_DIR="/home/yangxi/code/elfen/lucene/indices/wikimedium10k.trunk.Lucene50.Memory.nd10M"
-INDEX_DIR="~/benchmark/lucene/indices/wikimedium10k.trunk.Lucene50.Memory.nd10M"
-SERVER_IP="192.168.1.185:7777"
+LUCENE_BUILD="/home/makiras/elfen/lucene/trunk/lucene/build"
+TARGET_DIR="/home/makiras/elfen/lucene/util/build"
+LUCENE_UTIL="/home/makiras/elfen/lucene/util"
+#INDEX_DIR="/home/makiras/elfen/lucene/indices/wikimedium10k.trunk.Lucene50.Memory.nd10M"
+INDEX_DIR="/home/makiras/elfen/lucene/indices/wikimedium10k.trunk.Lucene50.Memory.nd10M"
+SERVER_IP="192.168.1.160:7777"
 SEARCH_THREAD="7"
-LOG_FILE="/home/yangxi/code/elfen/lucene/logs/log"
+LOG_FILE="/home/makiras/elfen/lucene/logs/log"
 JDK_PATH="/usr/lib/jvm/java-8-openjdk-amd64"
 
 if [ ! -d "${TARGET_DIR}" ]; then
