@@ -5,10 +5,10 @@ TARGET_DIR="/home/makiras/elfen/lucene/util/build"
 LUCENE_UTIL="/home/makiras/elfen/lucene/util"
 #INDEX_DIR="/home/makiras/elfen/lucene/indices/wikimedium10k.trunk.Lucene50.Memory.nd10M"
 INDEX_DIR="/home/makiras/elfen/lucene/indices/wikimedium10k.trunk.Lucene50.Memory.nd10M"
-SERVER_IP="192.168.1.160:7777"
+SERVER_IP="10.16.0.184:7777"
 SEARCH_THREAD="7"
 LOG_FILE="/home/makiras/elfen/lucene/logs/log"
-JDK_PATH="/usr/lib/jvm/java-8-openjdk-amd64"
+JDK_PATH="/usr/lib/jvm/java-1.8.0-openjdk"
 
 if [ ! -d "${TARGET_DIR}" ]; then
     mkdir ${TARGET_DIR};

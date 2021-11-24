@@ -237,9 +237,10 @@ class TaskParser {
         if (spot4 == -1) {
           throw new RuntimeException("failed to parse query=" + text);
         }
+        final int spot5 = text.indexOf(' ', spot4+1);
         final String nrqFieldName = text.substring(5, spot3);
         final int start = Integer.parseInt(text.substring(1+spot3, spot4));
-        final int end = Integer.parseInt(text.substring(1+spot4));
+        final int end = Integer.parseInt(text.substring(1+spot4, spot5));
         query = NumericRangeQuery.newIntRange(nrqFieldName, start, end, true, true);
         sort = null;
         group = null;
